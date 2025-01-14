@@ -35,6 +35,7 @@ impl Jellyfin {
             .user_id(&user_id)
             .recursive()
             .played()
+            .favorite(false)
             .include_item_types(&["Movie", "Video"])
             .fields(&["ProviderIds", "Path"]);
 

@@ -109,23 +109,25 @@ pub struct User {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ItemsFilter<'a> {
-    user_id: Option<&'a str>,
-    is_played: Option<bool>,
-    recursive: Option<bool>,
-    #[serde(serialize_with = "to_comma_separated")]
-    include_item_types: Option<&'a [&'a str]>,
     #[serde(serialize_with = "to_comma_separated")]
     fields: Option<&'a [&'a str]>,
+    #[serde(serialize_with = "to_comma_separated")]
+    include_item_types: Option<&'a [&'a str]>,
+    is_favorite: Option<bool>,
+    is_played: Option<bool>,
+    recursive: Option<bool>,
+    user_id: Option<&'a str>,
 }
 
 impl<'a> ItemsFilter<'a> {
     pub fn new() -> Self {
         Self {
-            user_id: None,
+            fields: None,
+            include_item_types: None,
+            is_favorite: None,
             is_played: None,
             recursive: None,
-            include_item_types: None,
-            fields: None,
+            user_id: None,
         }
     }
 
@@ -141,6 +143,11 @@ impl<'a> ItemsFilter<'a> {
 
     pub fn recursive(mut self) -> Self {
         self.recursive = Some(true);
+        self
+    }
+
+    pub fn favorite(mut self, value: bool) -> Self {
+        self.is_favorite = Some(value);
         self
     }
 

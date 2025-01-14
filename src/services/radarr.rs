@@ -2,6 +2,7 @@ use crate::{
     config::RadarrConfig,
     http::{jellyfin_client::Item, RadarrClient},
 };
+use log::{debug, info};
 use std::collections::HashSet;
 
 pub struct Radarr {
@@ -14,7 +15,7 @@ impl Radarr {
         Ok(Self { client })
     }
 
-    /// Get the movie IDs for a given TMDB ID.
+    /// get the movie IDs for a given TMDB ID
     async fn movie_ids(&self, tmdb_id: &str) -> anyhow::Result<HashSet<u64>> {
         let ids = self
             .client
@@ -26,11 +27,26 @@ impl Radarr {
         Ok(ids)
     }
 
-    /// Get the history for a list of movie IDs and delete them.
-    pub async fn cleanup_and_get_download_ids(
+    /// query Radarr history for given movie ids and get download_id for each
+    async fn download_ids(&self, ids: &[u64]) -> anyhow::Result<Vec<String>> {
+        let history = self.client.get_history(ids).await?;
+        let download_ids = history
+            .records
+            .into_iter()
+            .filter_map(|r| r.download_id)
+            .collect::<Vec<String>>();
+        Ok(download_ids)
+    }
+
+    /// get the history for a list of movie IDs and delete them
+    pub async fn delete_and_get_download_ids(
         &self,
+        force_delete: bool,
         items: &[Item],
     ) -> anyhow::Result<Vec<String>> {
+        if items.is_empty() {
+            return Ok(Vec::default());
+        }
         let tmdb_ids: Vec<&str> = items.iter().filter_map(|item| item.tmdb_id()).collect();
         let ids_futs = tmdb_ids.iter().map(|id| self.movie_ids(id));
         let ids = futures::future::try_join_all(ids_futs)
@@ -39,16 +55,15 @@ impl Radarr {
             .flat_map(|i| i.into_iter())
             .collect::<Vec<u64>>();
 
-        let history = self.client.get_history(&ids).await?;
+        let download_ids = self.download_ids(&ids).await?;
 
-        // let delete_futs = ids.iter().map(|id| self.client.delete_movie(*id));
-        // let _ = futures::future::try_join_all(delete_futs).await?;
-
-        let download_ids = history
-            .records
-            .into_iter()
-            .filter_map(|r| r.download_id)
-            .collect::<Vec<String>>();
+        if force_delete {
+            debug!("attempting to delete items {ids:?}");
+            let delete_futs = ids.iter().map(|id| self.client.delete_movie(*id));
+            let _ = futures::future::try_join_all(delete_futs).await?;
+            let items = items.iter().map(|i| &i.name).collect::<Vec<&String>>();
+            info!("successfully deleted items: {items:?}");
+        }
 
         Ok(download_ids)
     }

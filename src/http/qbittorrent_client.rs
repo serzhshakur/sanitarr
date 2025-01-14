@@ -46,7 +46,7 @@ impl QbittorrentClient {
 
     /// List all torrents in the client by their hashes.
     /// https://github.com/qbittorrent/qBittorrent/wiki/WebUI-API-(qBittorrent-4.1)#get-torrent-list
-    pub async fn list_torrents(&self, hashes: &[String]) -> anyhow::Result<Vec<String>> {
+    pub async fn list_torrents(&self, hashes: &[String]) -> anyhow::Result<Vec<Torrent>> {
         let url = self.base_url.join("torrents/info")?;
         let hashes = hashes.join("|");
 
@@ -59,25 +59,21 @@ impl QbittorrentClient {
             .await?
             .handle_error()
             .await?
-            .json::<Vec<Torrent>>()
-            .await?
-            .into_iter()
-            .map(|t| t.content_path)
-            .collect();
+            .json()
+            .await?;
         Ok(response)
     }
 
-    /// Delete torrents by provided hashes and delete the associated files.
+    /// Delete torrents by provided hashes and also delete the associated files.
     /// https://github.com/qbittorrent/qBittorrent/wiki/WebUI-API-(qBittorrent-4.1)#delete-torrents
     pub async fn delete_torrents(&self, hashes: &[String]) -> anyhow::Result<()> {
         let url = self.base_url.join("torrents/delete")?;
         let hashes = hashes.join("|");
-
+        let query = &[("hashes", hashes.as_str()), ("deleteFiles", "true")];
         self.client
-            .delete(url)
-            .query(&[("hashes", hashes)])
+            .post(url)
+            .query(query)
             .headers(self.default_headers.clone())
-            .query(&[("deleteFiles", "true")])
             .send()
             .await?
             .handle_error()

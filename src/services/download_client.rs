@@ -13,17 +13,20 @@ impl DownloadClient {
         }
     }
 
-    pub async fn delete(&self, dry_run: bool, hashes: &[String]) -> anyhow::Result<Vec<String>> {
+    pub async fn delete(&self, force_delete: bool, hashes: &[String]) -> anyhow::Result<()> {
+        if hashes.is_empty() {
+            return Ok(());
+        }
         let torrents = self.0.list_torrents(hashes).await?;
-        for torrent in &torrents {
-            info!("Deleting torrent: {torrent}");
-        }
+        let torrent_paths = torrents.iter().map(|t| &t.content_path).collect::<Vec<_>>();
 
-        if !dry_run {
+        info!("found the following torrents for deletion: {torrent_paths:?}");
+
+        if force_delete {
             self.0.delete_torrents(hashes).await?;
-            info!("Deleted {} torrents", torrents.len());
+            info!("deleted {} torrents", torrent_paths.len());
         }
 
-        Ok(torrents)
+        Ok(())
     }
 }
