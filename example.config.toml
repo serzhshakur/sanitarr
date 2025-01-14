@@ -8,6 +8,10 @@ api_key = "qwerasdfzxcvjkl"
 base_url = "http://localhost:7878"
 api_key = "qwerasdfzxcvjkl"
 
+[sonarr]
+base_url = "http://localhost:7878"
+api_key = "qwerasdfzxcvjkl"
+
 [download_client]
 type = "Qbittorrent"
 base_url = "http://localhost:8080"

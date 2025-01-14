@@ -1,14 +1,16 @@
 use crate::{config::DownloadClientConfig, http::QbittorrentClient};
 use log::info;
+use std::sync::Arc;
 
 pub struct DownloadClient(QbittorrentClient);
 
 impl DownloadClient {
-    pub async fn new(config: &DownloadClientConfig) -> anyhow::Result<Self> {
+    pub async fn new(config: &DownloadClientConfig) -> anyhow::Result<Arc<Self>> {
         match &config {
             DownloadClientConfig::Qbittorrent(c) => {
                 let client = QbittorrentClient::new(&c.base_url, &c.username, &c.password).await?;
-                Ok(Self(client))
+                let it = Arc::new(Self(client));
+                Ok(it)
             }
         }
     }

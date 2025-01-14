@@ -1,11 +1,12 @@
 use clap::Parser;
 use cli::Cli;
-use log::{info, LevelFilter};
+use log::LevelFilter;
 use services::{DownloadClient, Jellyfin, Radarr};
 
 mod cli;
 mod config;
 mod http;
+mod movies_cleaner;
 mod services;
 
 #[tokio::main]
@@ -15,21 +16,15 @@ async fn main() -> anyhow::Result<()> {
 
     let config = config::Config::load("config.toml").await?;
     let jellyfin = Jellyfin::new(&config.username, &config.jellyfin)?;
-    let items = jellyfin.get_watched_items().await?;
+    let download_client = DownloadClient::new(&config.download_client).await?;
 
-    if items.is_empty() {
-        info!("no items found for deletion!");
-    } else {
-        let radarr = Radarr::new(&config.radarr)?;
-        let download_ids = radarr
-            .delete_and_get_download_ids(args.force_delete, &items)
-            .await?;
+    let movies_cleaner = movies_cleaner::MoviesCleaner::new(
+        Radarr::new(&config.radarr)?,
+        jellyfin.clone(),
+        download_client.clone(),
+    )?;
 
-        let download_client = DownloadClient::new(&config.download_client).await?;
-        download_client
-            .delete(args.force_delete, &download_ids)
-            .await?;
-    }
+    movies_cleaner.cleanup(args.force_delete).await?;
 
     Ok(())
 }
