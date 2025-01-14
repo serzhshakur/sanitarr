@@ -1,0 +1,15 @@
+username = "foo"
+
+[jellyfin]
+base_url = "http://localhost:8096"
+api_key = "qwerasdfzxcvjkl"
+
+[radarr]
+base_url = "http://localhost:7878"
+api_key = "qwerasdfzxcvjkl"
+
+[download_client]
+type = "Qbittorrent"
+base_url = "http://localhost:8080"
+username = "admin"
+password = "adminadmin"
