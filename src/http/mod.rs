@@ -7,7 +7,7 @@ pub use jellyfin_client::{Item, ItemsFilter, JellyfinClient};
 use log::debug;
 pub use qbittorrent_client::QbittorrentClient;
 pub use radarr_client::RadarrClient;
-pub use sonarr_client::SonarrClient;
+pub use sonarr_client::{SeriesInfo, SonarrClient};
 
 use anyhow::bail;
 use reqwest::Response;

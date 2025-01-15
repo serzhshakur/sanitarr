@@ -1,5 +1,3 @@
-use std::collections::HashSet;
-
 use super::ResponseExt;
 use crate::config::QbittorrentConfig;
 use anyhow::Ok;
@@ -7,6 +5,7 @@ use reqwest::header::{HeaderMap, HeaderValue, COOKIE};
 use reqwest::{Client, Url};
 use serde::Deserialize;
 use serde_json::json;
+use std::collections::HashSet;
 
 pub struct QbittorrentClient {
     client: Client,
@@ -51,12 +50,7 @@ impl QbittorrentClient {
     /// https://github.com/qbittorrent/qBittorrent/wiki/WebUI-API-(qBittorrent-4.1)#get-torrent-list
     pub async fn list_torrents(&self, hashes: &HashSet<String>) -> anyhow::Result<Vec<Torrent>> {
         let url = self.base_url.join("torrents/info")?;
-        let hashes = hashes
-            .iter()
-            .map(|s| s.as_str())
-            .collect::<Vec<_>>()
-            .join("|");
-
+        let hashes = to_bar_separated_string(hashes);
         let response = self
             .client
             .get(url)
@@ -75,11 +69,7 @@ impl QbittorrentClient {
     /// https://github.com/qbittorrent/qBittorrent/wiki/WebUI-API-(qBittorrent-4.1)#delete-torrents
     pub async fn delete_torrents(&self, hashes: &HashSet<String>) -> anyhow::Result<()> {
         let url = self.base_url.join("torrents/delete")?;
-        let hashes = hashes
-            .iter()
-            .map(|s| s.as_str())
-            .collect::<Vec<_>>()
-            .join("|");
+        let hashes = to_bar_separated_string(hashes);
         let body = &[("hashes", hashes.as_str()), ("deleteFiles", "true")];
         self.client
             .post(url)
@@ -93,7 +83,28 @@ impl QbittorrentClient {
     }
 }
 
+fn to_bar_separated_string<'a, I>(hashes: I) -> String
+where
+    I: IntoIterator<Item = &'a String>,
+{
+    hashes
+        .into_iter()
+        .map(String::as_str)
+        .collect::<Vec<_>>()
+        .join("|")
+}
+
 #[derive(Deserialize)]
 pub struct Torrent {
     pub name: String,
+}
+
+#[cfg(test)]
+mod test {
+    #[test]
+    fn test_to_bar_separated_string() {
+        let hashes = &["hash1".to_owned(), "hash2".to_owned(), "hash3".to_owned()];
+        let result = super::to_bar_separated_string(hashes);
+        assert_eq!(result, "hash1|hash2|hash3");
+    }
 }

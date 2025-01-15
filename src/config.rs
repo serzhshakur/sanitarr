@@ -25,6 +25,8 @@ pub struct RadarrConfig {
 pub struct SonarrConfig {
     pub base_url: String,
     pub api_key: String,
+    #[serde(default)]
+    pub tags_to_keep: Vec<String>,
 }
 
 #[derive(Deserialize)]

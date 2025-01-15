@@ -49,8 +49,10 @@ impl Radarr {
             .collect::<Vec<u64>>();
 
         if ids.is_empty() {
-            info!("no movies found in Radarr history for a given query");
+            info!("no movies found for deletion!");
             return Ok(HashSet::default());
+        } else {
+            debug!("found movie ids for deletion {ids:?}");
         }
 
         let download_ids = self.download_ids(&ids).await?;

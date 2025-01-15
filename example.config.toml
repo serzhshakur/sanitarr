@@ -11,6 +11,7 @@ api_key = "qwerasdfzxcvjkl"
 [sonarr]
 base_url = "http://localhost:7878"
 api_key = "qwerasdfzxcvjkl"
+tags_to_keep = ["keep"]
 
 [download_client]
 type = "Qbittorrent"

@@ -2,7 +2,7 @@ use crate::services::{DownloadClient, Jellyfin, Sonarr};
 use std::sync::Arc;
 
 pub struct SeriesCleaner {
-    radarr: Sonarr,
+    sonarr: Sonarr,
     jellyfin: Arc<Jellyfin>,
     download_client: Arc<DownloadClient>,
 }
@@ -14,7 +14,7 @@ impl SeriesCleaner {
         download_client: Arc<DownloadClient>,
     ) -> anyhow::Result<Self> {
         Ok(Self {
-            radarr: sonarr,
+            sonarr,
             jellyfin,
             download_client,
         })
@@ -23,11 +23,11 @@ impl SeriesCleaner {
     pub async fn cleanup(&self, force_delete: bool) -> anyhow::Result<()> {
         let items = self.jellyfin.query_watched(&["Series"]).await?;
         if items.is_empty() {
-            log::info!("no TV series found for deletion!");
+            log::info!("no fully watched series found!");
             return Ok(());
         }
         let download_ids = self
-            .radarr
+            .sonarr
             .delete_and_get_download_ids(force_delete, &items)
             .await?;
 

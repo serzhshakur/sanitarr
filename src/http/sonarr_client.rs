@@ -50,7 +50,7 @@ impl SonarrClient {
     /// https://sonarr.tv/docs/api/#/History/get_api_v3_history
     pub async fn history_recods(
         &self,
-        movie_ids: &[u64],
+        movie_ids: &HashSet<u64>,
     ) -> anyhow::Result<HashSet<HistoryRecord>> {
         let url = self.base_url.join("history")?;
         let mut query: Vec<(&str, u64)> = movie_ids.iter().map(|id| ("seriesIds", *id)).collect();
@@ -100,25 +100,53 @@ impl SonarrClient {
             .await?;
         Ok(())
     }
-}
 
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SeriesInfo {
-    pub id: u64,
-    pub statistics: Statistics,
-}
-
-impl SeriesInfo {
-    pub fn present_on_disk(&self) -> bool {
-        self.statistics.size_on_disk > 0
+    /// Get all tags.
+    pub async fn tags(&self) -> anyhow::Result<Vec<Tag>> {
+        let url = self.base_url.join("tag")?;
+        let response = self
+            .client
+            .get(url)
+            .headers(self.default_headers.clone())
+            .send()
+            .await?
+            .handle_error()
+            .await?
+            .json()
+            .await?;
+        Ok(response)
     }
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Statistics {
+pub struct SeriesInfo {
+    pub title: String,
+    pub id: u64,
+    pub tags: Option<Vec<u64>>,
+    pub statistics: SeriesStatistics,
+    pub seasons: Option<Vec<Season>>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SeriesStatistics {
     pub size_on_disk: usize,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Season {
+    pub monitored: bool,
+    pub statistics: SeasonStatistics,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SeasonStatistics {
+    pub next_airing: Option<String>,
+    pub episode_file_count: usize,
+    pub total_episode_count: usize,
 }
 
 #[derive(Deserialize, Debug)]
@@ -131,4 +159,11 @@ pub struct History {
 #[serde(rename_all = "camelCase")]
 pub struct HistoryRecord {
     pub download_id: Option<String>,
+}
+
+#[derive(Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct Tag {
+    pub label: String,
+    pub id: u64,
 }
