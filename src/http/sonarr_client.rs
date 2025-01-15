@@ -1,14 +1,15 @@
 use super::ResponseExt;
 use anyhow::Ok;
 use reqwest::header::{HeaderMap, HeaderValue};
-use reqwest::{Client, Url};
+use reqwest::{Client, ClientBuilder, Url};
 use serde::Deserialize;
 use std::collections::HashSet;
 
+/// A client for interacting with Sonarr API.
+/// https://sonarr.tv/docs/api/
 pub struct SonarrClient {
     client: Client,
     base_url: Url,
-    default_headers: HeaderMap,
 }
 
 impl SonarrClient {
@@ -16,16 +17,12 @@ impl SonarrClient {
         let mut base_url = Url::parse(base_url)?;
         base_url.set_path("/api/v3/");
 
-        let mut default_headers = HeaderMap::new();
-        let mut header_value = HeaderValue::from_str(api_key)?;
-        header_value.set_sensitive(true);
-        default_headers.insert("x-api-key", header_value);
+        let default_headers = auth_headers(api_key)?;
+        let client = ClientBuilder::new()
+            .default_headers(default_headers)
+            .build()?;
 
-        Ok(Self {
-            client: Client::new(),
-            base_url,
-            default_headers,
-        })
+        Ok(Self { client, base_url })
     }
 
     /// Get the series IDs for a given TVDB ID.
@@ -35,7 +32,6 @@ impl SonarrClient {
         let response = self
             .client
             .get(url)
-            .headers(self.default_headers.clone())
             .query(&[("tvdbId", provider_id)])
             .send()
             .await?
@@ -63,7 +59,6 @@ impl SonarrClient {
             let history = self
                 .client
                 .get(url.clone())
-                .headers(self.default_headers.clone())
                 .query(&query)
                 .query(&[("page", page)])
                 .send()
@@ -92,7 +87,6 @@ impl SonarrClient {
             .join(&series_id.to_string())?;
         self.client
             .delete(url)
-            .headers(self.default_headers.clone())
             .query(&[("deleteFiles", "true")])
             .send()
             .await?
@@ -107,7 +101,6 @@ impl SonarrClient {
         let response = self
             .client
             .get(url)
-            .headers(self.default_headers.clone())
             .send()
             .await?
             .handle_error()
@@ -116,6 +109,14 @@ impl SonarrClient {
             .await?;
         Ok(response)
     }
+}
+
+fn auth_headers(api_key: &str) -> Result<HeaderMap, anyhow::Error> {
+    let mut default_headers = HeaderMap::new();
+    let mut header_value = HeaderValue::from_str(api_key)?;
+    header_value.set_sensitive(true);
+    default_headers.insert("x-api-key", header_value);
+    Ok(default_headers)
 }
 
 #[derive(Deserialize)]
@@ -166,4 +167,14 @@ pub struct HistoryRecord {
 pub struct Tag {
     pub label: String,
     pub id: u64,
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_auth_headers() {
+        let headers = super::auth_headers("abc-key").unwrap();
+        assert_eq!(headers.len(), 1);
+        assert_eq!(headers.get("x-api-key").unwrap(), "abc-key");
+    }
 }

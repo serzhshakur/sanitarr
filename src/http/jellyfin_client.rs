@@ -1,38 +1,31 @@
 use super::ResponseExt;
 use anyhow::Ok;
 use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION};
-use reqwest::{Client, Url};
+use reqwest::{Client, ClientBuilder, Url};
 use serde::{Deserialize, Serialize};
 
 pub struct JellyfinClient {
     client: Client,
     base_url: Url,
-    default_headers: HeaderMap,
 }
 
 impl JellyfinClient {
     pub fn new(base_url: &str, api_key: &str) -> anyhow::Result<Self> {
         let base_url = Url::parse(base_url)?;
-
-        let mut default_headers = HeaderMap::new();
-        let header_value = format!("MediaBrowser Token={api_key}");
-        let mut header_value = HeaderValue::from_str(&header_value)?;
-        header_value.set_sensitive(true);
-        default_headers.insert(AUTHORIZATION, header_value);
-
-        Ok(Self {
-            client: Client::new(),
-            base_url,
-            default_headers,
-        })
+        let default_headers = auth_headers(api_key)?;
+        let client = ClientBuilder::new()
+            .default_headers(default_headers)
+            .build()?;
+        Ok(Self { client, base_url })
     }
 
-    pub async fn get_items(&self, items_filter: ItemsFilter<'_>) -> anyhow::Result<Vec<Item>> {
+    /// Get all items that match the given query filter
+    /// https://api.jellyfin.org/#tag/Items
+    pub async fn items(&self, items_filter: ItemsFilter<'_>) -> anyhow::Result<Vec<Item>> {
         let url = self.base_url.join("Items")?;
         let response = self
             .client
             .get(url)
-            .headers(self.default_headers.clone())
             .query(&items_filter)
             .send()
             .await?
@@ -44,12 +37,13 @@ impl JellyfinClient {
         Ok(response.items)
     }
 
-    pub async fn get_users(&self) -> anyhow::Result<Vec<User>> {
+    /// Get all users.
+    /// https://api.jellyfin.org/#tag/User
+    pub async fn users(&self) -> anyhow::Result<Vec<User>> {
         let url = self.base_url.join("Users")?;
         let response = self
             .client
             .get(url)
-            .headers(self.default_headers.clone())
             .send()
             .await?
             .handle_error()
@@ -59,6 +53,15 @@ impl JellyfinClient {
 
         Ok(response)
     }
+}
+
+fn auth_headers(api_key: &str) -> Result<HeaderMap, anyhow::Error> {
+    let mut auth_headers = HeaderMap::new();
+    let header_value = format!("MediaBrowser Token={api_key}");
+    let mut header_value = HeaderValue::from_str(&header_value)?;
+    header_value.set_sensitive(true);
+    auth_headers.insert(AUTHORIZATION, header_value);
+    Ok(auth_headers)
 }
 
 #[derive(Deserialize)]
@@ -71,8 +74,6 @@ pub struct ItemsResponse {
 #[serde(rename_all = "PascalCase")]
 pub struct Item {
     pub name: String,
-    // #[serde(rename = "Type")]
-    // pub item_type: ItemType,
     pub provider_ids: ProviderIds,
 }
 
@@ -94,22 +95,15 @@ pub struct ProviderIds {
 
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "PascalCase")]
-pub enum ItemType {
-    Movie,
-    Episode,
-    Series,
-    Season,
-    #[serde(other)]
-    Other,
-}
-
-#[derive(Deserialize, Debug)]
-#[serde(rename_all = "PascalCase")]
 pub struct User {
     pub id: String,
     pub name: String,
 }
 
+/// Filter for querying items. Serializes into query parameters. Check [docs]
+/// for more details
+///
+/// [docs]: https://api.jellyfin.org/#tag/Items/operation/GetItems
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ItemsFilter<'a> {
@@ -180,4 +174,33 @@ where
         }
     }
     serializer.serialize_none()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_items_filter() {
+        let filter = ItemsFilter::new()
+            .user_id("user_id")
+            .recursive()
+            .played()
+            .favorite(false)
+            .include_item_types(&["Movie", "Video"])
+            .fields(&["ProviderIds", "Path"]);
+
+        let expected = r#"{"fields":"ProviderIds,Path","includeItemTypes":"Movie,Video","isFavorite":false,"isPlayed":true,"recursive":true,"userId":"user_id"}"#;
+        let actual = serde_json::to_string(&filter).unwrap();
+        assert_eq!(expected, actual);
+    }
+
+    #[test]
+    fn test_auth_headers() -> anyhow::Result<()> {
+        let headers = auth_headers("abc")?;
+        let expected = "MediaBrowser Token=abc";
+        let actual = headers.get(AUTHORIZATION).unwrap().to_str()?;
+        assert_eq!(expected, actual);
+        Ok(())
+    }
 }

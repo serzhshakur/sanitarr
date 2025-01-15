@@ -2,9 +2,11 @@ use crate::{config::DownloadClientConfig, http::QbittorrentClient};
 use log::info;
 use std::{collections::HashSet, sync::Arc};
 
-pub struct DownloadClient(QbittorrentClient);
+/// This is a high level service that interacts with Download client API and
+/// transforms the data into a more usable format.
+pub struct DownloadService(QbittorrentClient);
 
-impl DownloadClient {
+impl DownloadService {
     pub async fn new(config: &DownloadClientConfig) -> anyhow::Result<Arc<Self>> {
         match &config {
             DownloadClientConfig::Qbittorrent(cfg) => {

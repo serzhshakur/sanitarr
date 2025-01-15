@@ -87,11 +87,13 @@ fn to_bar_separated_string<'a, I>(hashes: I) -> String
 where
     I: IntoIterator<Item = &'a String>,
 {
-    hashes
-        .into_iter()
-        .map(String::as_str)
-        .collect::<Vec<_>>()
-        .join("|")
+    let hashes_vec = hashes.into_iter().map(String::as_str).collect::<Vec<_>>();
+    if hashes_vec.is_empty() {
+        // if there are no hashes, return "none" as the value to avoid
+        // qbittorrent returning all torrents
+        return "none".to_owned();
+    }
+    hashes_vec.join("|")
 }
 
 #[derive(Deserialize)]
@@ -106,5 +108,12 @@ mod test {
         let hashes = &["hash1".to_owned(), "hash2".to_owned(), "hash3".to_owned()];
         let result = super::to_bar_separated_string(hashes);
         assert_eq!(result, "hash1|hash2|hash3");
+    }
+
+    #[test]
+    fn test_to_bar_separated_string_empty() {
+        let hashes: Vec<String> = vec![];
+        let result = super::to_bar_separated_string(&hashes);
+        assert_eq!(result, "none");
     }
 }

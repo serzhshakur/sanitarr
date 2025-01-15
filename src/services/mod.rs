@@ -1,9 +1,5 @@
-pub mod download_client;
-pub mod jellyfin;
-pub mod radarr;
-pub mod sonarr;
+mod download_service;
+mod jellyfin;
 
-pub use download_client::DownloadClient;
+pub use download_service::DownloadService;
 pub use jellyfin::Jellyfin;
-pub use radarr::Radarr;
-pub use sonarr::Sonarr;

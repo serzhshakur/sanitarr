@@ -1,14 +1,15 @@
 use super::ResponseExt;
 use anyhow::Ok;
 use reqwest::header::{HeaderMap, HeaderValue};
-use reqwest::{Client, Url};
+use reqwest::{Client, ClientBuilder, Url};
 use serde::Deserialize;
 use std::collections::HashSet;
 
+/// A client for interacting with Radarr API.
+/// https://radarr.video/docs/api/
 pub struct RadarrClient {
     client: Client,
     base_url: Url,
-    default_headers: HeaderMap,
 }
 
 impl RadarrClient {
@@ -16,16 +17,12 @@ impl RadarrClient {
         let mut base_url = Url::parse(base_url)?;
         base_url.set_path("/api/v3/");
 
-        let mut default_headers = HeaderMap::new();
-        let mut header_value = HeaderValue::from_str(api_key)?;
-        header_value.set_sensitive(true);
-        default_headers.insert("x-api-key", header_value);
+        let default_headers = auth_headers(api_key)?;
+        let client = ClientBuilder::new()
+            .default_headers(default_headers)
+            .build()?;
 
-        Ok(Self {
-            client: Client::new(),
-            base_url,
-            default_headers,
-        })
+        Ok(Self { client, base_url })
     }
 
     /// Get the movie IDs for a given TMDB ID.
@@ -35,7 +32,6 @@ impl RadarrClient {
         let response = self
             .client
             .get(url)
-            .headers(self.default_headers.clone())
             .query(&[("tmdbId", tmdb_id)])
             .send()
             .await?
@@ -63,7 +59,6 @@ impl RadarrClient {
             let history = self
                 .client
                 .get(url.clone())
-                .headers(self.default_headers.clone())
                 .query(&query)
                 .query(&[("page", page)])
                 .send()
@@ -88,7 +83,6 @@ impl RadarrClient {
         let url = self.base_url.join("movie/")?.join(&movie_id.to_string())?;
         self.client
             .delete(url)
-            .headers(self.default_headers.clone())
             .query(&[("deleteFiles", "true")])
             .send()
             .await?
@@ -96,6 +90,14 @@ impl RadarrClient {
             .await?;
         Ok(())
     }
+}
+
+fn auth_headers(api_key: &str) -> Result<HeaderMap, anyhow::Error> {
+    let mut default_headers = HeaderMap::new();
+    let mut header_value = HeaderValue::from_str(api_key)?;
+    header_value.set_sensitive(true);
+    default_headers.insert("x-api-key", header_value);
+    Ok(default_headers)
 }
 
 #[derive(Deserialize)]
@@ -115,4 +117,14 @@ pub struct History {
 #[serde(rename_all = "camelCase")]
 pub struct HistoryRecord {
     pub download_id: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_auth_headers() {
+        let headers = super::auth_headers("abc-key").unwrap();
+        assert_eq!(headers.len(), 1);
+        assert_eq!(headers.get("x-api-key").unwrap(), "abc-key");
+    }
 }

@@ -1,28 +1,57 @@
 use crate::{
     config::SonarrConfig,
     http::{Item, SeriesInfo, SonarrClient},
+    services::{DownloadService, Jellyfin},
 };
 use log::{debug, info};
-use std::collections::HashSet;
+use std::{collections::HashSet, sync::Arc};
 
-pub struct Sonarr {
-    client: SonarrClient,
+/// SeriesCleaner is responsible for cleaning up watched series from Sonarr and
+/// Download client (e.g. qBittorrent).
+pub struct SeriesCleaner {
+    sonarr_client: SonarrClient,
+    jellyfin: Arc<Jellyfin>,
+    download_client: Arc<DownloadService>,
     tags_to_keep: Vec<String>,
 }
 
-impl Sonarr {
-    pub fn new(config: &SonarrConfig) -> anyhow::Result<Self> {
-        let client = SonarrClient::new(&config.base_url, &config.api_key)?;
+impl SeriesCleaner {
+    pub fn new(
+        sonarr_config: &SonarrConfig,
+        jellyfin: Arc<Jellyfin>,
+        download_client: Arc<DownloadService>,
+    ) -> anyhow::Result<Self> {
+        let sonarr_client = SonarrClient::new(&sonarr_config.base_url, &sonarr_config.api_key)?;
         Ok(Self {
-            client,
-            tags_to_keep: config.tags_to_keep.clone(),
+            sonarr_client,
+            jellyfin,
+            download_client,
+            tags_to_keep: sonarr_config.tags_to_keep.clone(),
         })
+    }
+
+    /// cleanup fully watched series from Sonarr and Download client
+    pub async fn cleanup(&self, force_delete: bool) -> anyhow::Result<()> {
+        let items = self.jellyfin.query_watched(&["Series"]).await?;
+        if items.is_empty() {
+            log::info!("no fully watched series found!");
+            return Ok(());
+        }
+        let download_ids = self
+            .delete_and_get_download_ids(force_delete, &items)
+            .await?;
+
+        self.download_client
+            .delete(force_delete, &download_ids)
+            .await?;
+
+        Ok(())
     }
 
     async fn forbidden_tags(&self) -> anyhow::Result<Vec<u64>> {
         debug!("forbidden tags configured: {:?}", self.tags_to_keep);
 
-        let tags = self.client.tags().await?;
+        let tags = self.sonarr_client.tags().await?;
         let forbidden_tags = tags
             .iter()
             .filter(|t| self.tags_to_keep.contains(&t.label))
@@ -41,7 +70,7 @@ impl Sonarr {
         forbidden_tags: &[u64],
     ) -> anyhow::Result<HashSet<u64>> {
         let ids = self
-            .client
+            .sonarr_client
             .series_by_tvdb_id(tvdb_id)
             .await?
             .iter()
@@ -52,7 +81,7 @@ impl Sonarr {
 
     /// query Sonarr history for given series ids and get download_id for each
     async fn download_ids(&self, ids: &HashSet<u64>) -> anyhow::Result<HashSet<String>> {
-        let records = self.client.history_recods(ids).await?;
+        let records = self.sonarr_client.history_recods(ids).await?;
         let download_ids = records
             .into_iter()
             .filter_map(|r| r.download_id)
@@ -61,7 +90,7 @@ impl Sonarr {
     }
 
     /// get the history for a list of series IDs and delete them
-    pub async fn delete_and_get_download_ids(
+    async fn delete_and_get_download_ids(
         &self,
         force_delete: bool,
         items: &[Item],
@@ -93,7 +122,7 @@ impl Sonarr {
 
         if force_delete {
             debug!("attempting to delete series items {ids:?}");
-            let delete_futs = ids.iter().map(|id| self.client.delete_series(*id));
+            let delete_futs = ids.iter().map(|id| self.sonarr_client.delete_series(*id));
             let _ = futures::future::try_join_all(delete_futs).await?;
             let items: Vec<&String> = items.iter().map(|i| &i.name).collect::<Vec<&String>>();
             info!("successfully deleted series: {items:?}");
@@ -111,15 +140,15 @@ fn safe_to_delete(series: &SeriesInfo, forbidden_tags: &[u64]) -> bool {
         .is_some_and(|tags| tags.iter().any(|tag| forbidden_tags.contains(tag)));
 
     if has_forbidden_tags {
-        debug!("series {} has forbidden tags, skipping", series.title);
+        debug!("{}: series has forbidden tags, skipping", series.title);
         return false;
     }
     if series.statistics.size_on_disk == 0 {
-        debug!("series {} not present on disk, skipping", series.title);
+        debug!("{}: series not present on disk, skipping", series.title);
         return false;
     }
     let Some(seasons) = &series.seasons else {
-        debug!("series {} has no seasons, skipping", series.title);
+        debug!("{}: series has no seasons, skipping", series.title);
         return false;
     };
     seasons.iter().all(|season| {

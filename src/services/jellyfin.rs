@@ -4,6 +4,8 @@ use crate::{
 };
 use std::sync::Arc;
 
+/// This is a high level service that interacts with Jellyfin API and transforms
+/// the data into a more usable format.
 pub struct Jellyfin {
     client: JellyfinClient,
     username: String,
@@ -21,16 +23,12 @@ impl Jellyfin {
     }
 
     pub async fn user_id(&self) -> anyhow::Result<String> {
-        let users = self.client.get_users().await?;
+        let users = self.client.users().await?;
         users
             .into_iter()
             .find(|user| user.name == self.username)
             .map(|u| u.id)
             .ok_or_else(|| anyhow::anyhow!("User {} not found", self.username))
-    }
-
-    pub async fn query_items(&self, filter: ItemsFilter<'_>) -> anyhow::Result<Vec<Item>> {
-        self.client.get_items(filter).await
     }
 
     pub async fn query_watched(&self, item_types: &[&str]) -> anyhow::Result<Vec<Item>> {
@@ -42,6 +40,6 @@ impl Jellyfin {
             .favorite(false)
             .fields(&["ProviderIds", "Path"])
             .include_item_types(item_types);
-        self.client.get_items(filter).await
+        self.client.items(filter).await
     }
 }
