@@ -1,9 +1,6 @@
 use crate::{
     config::JellyfinConfig,
-    http::{
-        jellyfin_client::{Item, ItemsFilter},
-        JellyfinClient,
-    },
+    http::{Item, ItemsFilter, JellyfinClient},
 };
 use std::sync::Arc;
 
@@ -33,6 +30,18 @@ impl Jellyfin {
     }
 
     pub async fn query_items(&self, filter: ItemsFilter<'_>) -> anyhow::Result<Vec<Item>> {
+        self.client.get_items(filter).await
+    }
+
+    pub async fn query_watched(&self, item_types: &[&str]) -> anyhow::Result<Vec<Item>> {
+        let user_id = self.user_id().await?;
+        let filter = ItemsFilter::new()
+            .user_id(&user_id)
+            .recursive()
+            .played()
+            .favorite(false)
+            .fields(&["ProviderIds", "Path"])
+            .include_item_types(item_types);
         self.client.get_items(filter).await
     }
 }

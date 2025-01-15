@@ -1,34 +1,32 @@
 use crate::{config::DownloadClientConfig, http::QbittorrentClient};
 use log::info;
-use std::sync::Arc;
+use std::{collections::HashSet, sync::Arc};
 
 pub struct DownloadClient(QbittorrentClient);
 
 impl DownloadClient {
     pub async fn new(config: &DownloadClientConfig) -> anyhow::Result<Arc<Self>> {
         match &config {
-            DownloadClientConfig::Qbittorrent(c) => {
-                let client = QbittorrentClient::new(&c.base_url, &c.username, &c.password).await?;
+            DownloadClientConfig::Qbittorrent(cfg) => {
+                let client = QbittorrentClient::new(cfg).await?;
                 let it = Arc::new(Self(client));
                 Ok(it)
             }
         }
     }
 
-    pub async fn delete(&self, force_delete: bool, hashes: &[String]) -> anyhow::Result<()> {
-        if hashes.is_empty() {
-            return Ok(());
+    pub async fn delete(&self, force_delete: bool, hashes: &HashSet<String>) -> anyhow::Result<()> {
+        if !hashes.is_empty() {
+            let torrents = self.0.list_torrents(hashes).await?;
+            let torrents = torrents.iter().map(|t| &t.name).collect::<Vec<_>>();
+
+            info!("found the following torrents for deletion: {torrents:?}");
+
+            if force_delete {
+                self.0.delete_torrents(hashes).await?;
+                info!("deleted {} torrents", torrents.len());
+            }
         }
-        let torrents = self.0.list_torrents(hashes).await?;
-        let torrent_paths = torrents.iter().map(|t| &t.content_path).collect::<Vec<_>>();
-
-        info!("found the following torrents for deletion: {torrent_paths:?}");
-
-        if force_delete {
-            self.0.delete_torrents(hashes).await?;
-            info!("deleted {} torrents", torrent_paths.len());
-        }
-
         Ok(())
     }
 }

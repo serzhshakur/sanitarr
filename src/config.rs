@@ -5,6 +5,7 @@ pub struct Config {
     pub username: String,
     pub jellyfin: JellyfinConfig,
     pub radarr: RadarrConfig,
+    pub sonarr: SonarrConfig,
     pub download_client: DownloadClientConfig,
 }
 
@@ -16,6 +17,12 @@ pub struct JellyfinConfig {
 
 #[derive(Deserialize)]
 pub struct RadarrConfig {
+    pub base_url: String,
+    pub api_key: String,
+}
+
+#[derive(Deserialize)]
+pub struct SonarrConfig {
     pub base_url: String,
     pub api_key: String,
 }

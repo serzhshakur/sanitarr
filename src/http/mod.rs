@@ -1,11 +1,13 @@
-pub mod jellyfin_client;
-pub mod qbittorrent_client;
-pub mod radarr_client;
+mod jellyfin_client;
+mod qbittorrent_client;
+mod radarr_client;
+mod sonarr_client;
 
-pub use jellyfin_client::JellyfinClient;
+pub use jellyfin_client::{Item, ItemsFilter, JellyfinClient};
 use log::debug;
 pub use qbittorrent_client::QbittorrentClient;
 pub use radarr_client::RadarrClient;
+pub use sonarr_client::SonarrClient;
 
 use anyhow::bail;
 use reqwest::Response;

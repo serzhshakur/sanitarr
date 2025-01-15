@@ -1,6 +1,6 @@
 use crate::{
     config::RadarrConfig,
-    http::{jellyfin_client::Item, RadarrClient},
+    http::{Item, RadarrClient},
 };
 use log::{debug, info};
 use std::collections::HashSet;
@@ -28,13 +28,9 @@ impl Radarr {
     }
 
     /// query Radarr history for given movie ids and get download_id for each
-    async fn download_ids(&self, ids: &[u64]) -> anyhow::Result<Vec<String>> {
-        let history = self.client.get_history(ids).await?;
-        let download_ids = history
-            .records
-            .into_iter()
-            .filter_map(|r| r.download_id)
-            .collect::<Vec<String>>();
+    async fn download_ids(&self, ids: &[u64]) -> anyhow::Result<HashSet<String>> {
+        let records = self.client.history_records(ids).await?;
+        let download_ids = records.into_iter().filter_map(|r| r.download_id).collect();
         Ok(download_ids)
     }
 
@@ -43,10 +39,7 @@ impl Radarr {
         &self,
         force_delete: bool,
         items: &[Item],
-    ) -> anyhow::Result<Vec<String>> {
-        if items.is_empty() {
-            return Ok(Vec::default());
-        }
+    ) -> anyhow::Result<HashSet<String>> {
         let tmdb_ids: Vec<&str> = items.iter().filter_map(|item| item.tmdb_id()).collect();
         let ids_futs = tmdb_ids.iter().map(|id| self.movie_ids(id));
         let ids = futures::future::try_join_all(ids_futs)
@@ -54,6 +47,11 @@ impl Radarr {
             .into_iter()
             .flat_map(|i| i.into_iter())
             .collect::<Vec<u64>>();
+
+        if ids.is_empty() {
+            info!("no movies found in Radarr history for a given query");
+            return Ok(HashSet::default());
+        }
 
         let download_ids = self.download_ids(&ids).await?;
 

@@ -5,7 +5,7 @@ use std::path::PathBuf;
 #[clap(
     name = "Sanitarr",
     version = "1.0",
-    about = "Sanitarr is a simple CLI tool to delete watched items from your *arr stack"
+    about = "Sanitarr is a simple CLI tool to delete watched items from your *arr stack."
 )]
 pub struct Cli {
     /// Perform actual deletion of files. If not set the program will operate in

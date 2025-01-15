@@ -1,12 +1,13 @@
 use clap::Parser;
 use cli::Cli;
 use log::LevelFilter;
-use services::{DownloadClient, Jellyfin, Radarr};
+use services::{DownloadClient, Jellyfin, Radarr, Sonarr};
 
 mod cli;
 mod config;
 mod http;
 mod movies_cleaner;
+mod series_cleaner;
 mod services;
 
 #[tokio::main]
@@ -24,7 +25,14 @@ async fn main() -> anyhow::Result<()> {
         download_client.clone(),
     )?;
 
+    let series_cleaner = series_cleaner::SeriesCleaner::new(
+        Sonarr::new(&config.sonarr)?,
+        jellyfin.clone(),
+        download_client.clone(),
+    )?;
+
     movies_cleaner.cleanup(args.force_delete).await?;
+    series_cleaner.cleanup(args.force_delete).await?;
 
     Ok(())
 }

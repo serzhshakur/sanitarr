@@ -5,13 +5,13 @@ use reqwest::{Client, Url};
 use serde::Deserialize;
 use std::collections::HashSet;
 
-pub struct RadarrClient {
+pub struct SonarrClient {
     client: Client,
     base_url: Url,
     default_headers: HeaderMap,
 }
 
-impl RadarrClient {
+impl SonarrClient {
     pub fn new(base_url: &str, api_key: &str) -> anyhow::Result<Self> {
         let mut base_url = Url::parse(base_url)?;
         base_url.set_path("/api/v3/");
@@ -28,15 +28,15 @@ impl RadarrClient {
         })
     }
 
-    /// Get the movie IDs for a given TMDB ID.
-    /// https://radarr.video/docs/api/#/Movie/get_api_v3_movie
-    pub async fn movies_by_tmdb_id(&self, tmdb_id: &str) -> anyhow::Result<Vec<Movie>> {
-        let url = self.base_url.join("movie")?;
+    /// Get the series IDs for a given TVDB ID.
+    /// https://sonarr.tv/docs/api/#/Series/get_api_v3_series
+    pub async fn series_by_tvdb_id(&self, provider_id: &str) -> anyhow::Result<Vec<SeriesInfo>> {
+        let url = self.base_url.join("series")?;
         let response = self
             .client
             .get(url)
             .headers(self.default_headers.clone())
-            .query(&[("tmdbId", tmdb_id)])
+            .query(&[("tvdbId", provider_id)])
             .send()
             .await?
             .handle_error()
@@ -46,14 +46,14 @@ impl RadarrClient {
         Ok(response)
     }
 
-    /// Get the history for a list of movie IDs.
-    /// https://radarr.video/docs/api/#/History/get_api_v3_history
-    pub async fn history_records(
+    /// Get the history records for a list of series IDs.
+    /// https://sonarr.tv/docs/api/#/History/get_api_v3_history
+    pub async fn history_recods(
         &self,
         movie_ids: &[u64],
     ) -> anyhow::Result<HashSet<HistoryRecord>> {
         let url = self.base_url.join("history")?;
-        let mut query: Vec<(&str, u64)> = movie_ids.iter().map(|id| ("movieIds[]", *id)).collect();
+        let mut query: Vec<(&str, u64)> = movie_ids.iter().map(|id| ("seriesIds", *id)).collect();
         query.push(("pageSize", 100));
 
         let mut records = HashSet::new();
@@ -79,13 +79,17 @@ impl RadarrClient {
             records.extend(history.records);
             page += 1;
         }
+
         Ok(records)
     }
 
-    /// Delete a movie by its ID and all associated files.
-    /// https://radarr.video/docs/api/#/Movie/delete_api_v3_movie__id_
-    pub async fn delete_movie(&self, movie_id: u64) -> anyhow::Result<()> {
-        let url = self.base_url.join("movie/")?.join(&movie_id.to_string())?;
+    /// Delete series by its ID and all associated files.
+    /// https://sonarr.tv/docs/api/#/Series/delete_api_v3_series__id_
+    pub async fn delete_series(&self, series_id: u64) -> anyhow::Result<()> {
+        let url = self
+            .base_url
+            .join("series/")?
+            .join(&series_id.to_string())?;
         self.client
             .delete(url)
             .headers(self.default_headers.clone())
@@ -100,9 +104,21 @@ impl RadarrClient {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Movie {
+pub struct SeriesInfo {
     pub id: u64,
-    pub has_file: bool,
+    pub statistics: Statistics,
+}
+
+impl SeriesInfo {
+    pub fn present_on_disk(&self) -> bool {
+        self.statistics.size_on_disk > 0
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Statistics {
+    pub size_on_disk: usize,
 }
 
 #[derive(Deserialize, Debug)]

@@ -71,9 +71,8 @@ pub struct ItemsResponse {
 #[serde(rename_all = "PascalCase")]
 pub struct Item {
     pub name: String,
-    pub path: String,
-    #[serde(rename = "Type")]
-    pub item_type: ItemType,
+    // #[serde(rename = "Type")]
+    // pub item_type: ItemType,
     pub provider_ids: ProviderIds,
 }
 
@@ -81,12 +80,16 @@ impl Item {
     pub fn tmdb_id(&self) -> Option<&str> {
         self.provider_ids.tmdb.as_deref()
     }
+    pub fn tvdb_id(&self) -> Option<&str> {
+        self.provider_ids.tvdb.as_deref()
+    }
 }
 
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "PascalCase")]
 pub struct ProviderIds {
     pub tmdb: Option<String>,
+    pub tvdb: Option<String>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -94,6 +97,7 @@ pub struct ProviderIds {
 pub enum ItemType {
     Movie,
     Episode,
+    Series,
     Season,
     #[serde(other)]
     Other,

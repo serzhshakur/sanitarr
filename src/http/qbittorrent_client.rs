@@ -1,4 +1,7 @@
+use std::collections::HashSet;
+
 use super::ResponseExt;
+use crate::config::QbittorrentConfig;
 use anyhow::Ok;
 use reqwest::header::{HeaderMap, HeaderValue, COOKIE};
 use reqwest::{Client, Url};
@@ -12,15 +15,15 @@ pub struct QbittorrentClient {
 }
 
 impl QbittorrentClient {
-    pub async fn new(base_url: &str, username: &str, password: &str) -> anyhow::Result<Self> {
-        let mut base_url = Url::parse(base_url)?;
+    pub async fn new(config: &QbittorrentConfig) -> anyhow::Result<Self> {
+        let mut base_url = Url::parse(&config.base_url)?;
         base_url.set_path("/api/v2/");
 
         let client = Client::new();
 
         let response = client
             .post(base_url.join("auth/login")?)
-            .form(&json!({ "username": username, "password": password }))
+            .form(&json!({ "username": config.username, "password": config.password }))
             .send()
             .await?
             .handle_error()
@@ -46,9 +49,13 @@ impl QbittorrentClient {
 
     /// List all torrents in the client by their hashes.
     /// https://github.com/qbittorrent/qBittorrent/wiki/WebUI-API-(qBittorrent-4.1)#get-torrent-list
-    pub async fn list_torrents(&self, hashes: &[String]) -> anyhow::Result<Vec<Torrent>> {
+    pub async fn list_torrents(&self, hashes: &HashSet<String>) -> anyhow::Result<Vec<Torrent>> {
         let url = self.base_url.join("torrents/info")?;
-        let hashes = hashes.join("|");
+        let hashes = hashes
+            .iter()
+            .map(|s| s.as_str())
+            .collect::<Vec<_>>()
+            .join("|");
 
         let response = self
             .client
@@ -66,13 +73,17 @@ impl QbittorrentClient {
 
     /// Delete torrents by provided hashes and also delete the associated files.
     /// https://github.com/qbittorrent/qBittorrent/wiki/WebUI-API-(qBittorrent-4.1)#delete-torrents
-    pub async fn delete_torrents(&self, hashes: &[String]) -> anyhow::Result<()> {
+    pub async fn delete_torrents(&self, hashes: &HashSet<String>) -> anyhow::Result<()> {
         let url = self.base_url.join("torrents/delete")?;
-        let hashes = hashes.join("|");
-        let query = &[("hashes", hashes.as_str()), ("deleteFiles", "true")];
+        let hashes = hashes
+            .iter()
+            .map(|s| s.as_str())
+            .collect::<Vec<_>>()
+            .join("|");
+        let body = &[("hashes", hashes.as_str()), ("deleteFiles", "true")];
         self.client
             .post(url)
-            .query(query)
+            .form(body)
             .headers(self.default_headers.clone())
             .send()
             .await?
@@ -84,5 +95,5 @@ impl QbittorrentClient {
 
 #[derive(Deserialize)]
 pub struct Torrent {
-    pub content_path: String,
+    pub name: String,
 }

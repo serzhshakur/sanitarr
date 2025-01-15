@@ -1,5 +1,5 @@
 use crate::{
-    http::jellyfin_client::{Item, ItemsFilter},
+    http::{Item, ItemsFilter},
     services::{DownloadClient, Jellyfin, Radarr},
 };
 use std::sync::Arc;
@@ -38,7 +38,7 @@ impl MoviesCleaner {
     pub async fn cleanup(&self, force_delete: bool) -> anyhow::Result<()> {
         let items = self.query_watched().await?;
         if items.is_empty() {
-            log::info!("no items found for deletion!");
+            log::info!("no movies found for deletion!");
             return Ok(());
         }
         let download_ids = self
