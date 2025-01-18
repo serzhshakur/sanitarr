@@ -13,7 +13,7 @@ pub struct Cli {
     #[clap(short = 'd', long)]
     pub force_delete: bool,
     /// Set the log level
-    #[clap(short, long, default_value = "info")]
+    #[clap(short, long, default_value = "info", env = "LOG_LEVEL")]
     pub log_level: log::LevelFilter,
     /// Path to the config file
     #[clap(short, long)]

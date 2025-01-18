@@ -7,7 +7,7 @@ edition = "2021"
 anyhow = "1.0.95"
 chron = "0.1.5"
 chrono = "0.4.39"
-clap = { version = "4.5.26", features = ["derive"] }
+clap = { version = "4.5.26", features = ["derive", "env"] }
 fern = "0.7.1"
 futures = "0.3.31"
 log = "0.4.25"

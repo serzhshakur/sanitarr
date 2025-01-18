@@ -20,5 +20,7 @@ EOF
 FROM debian:bullseye-slim
 WORKDIR /app
 COPY --from=builder /app/sanitarr .
+COPY entrypoint.sh .
+RUN chmod +x entrypoint.sh
 
-ENTRYPOINT ["./sanitarr"]
+ENTRYPOINT ["./entrypoint.sh"]

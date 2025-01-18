@@ -61,6 +61,12 @@ The binary will be located in the `target/release` directory.
 
 ### Using Docker
 
+When running Sanitarr in a Docker container, the binary will be executed
+periodically at intervals controlled by the `INTERVAL` environment variable. The
+value for `INTERVAL` should be specified in a [format understood by the `sleep`
+command](https://www.gnu.org/software/coreutils/manual/html_node/sleep-invocation.html#sleep_003a-Delay-for-a-specified-time)
+(e.g., `1h` for one hour, `30m` for thirty minutes).
+
 You can build and run Sanitarr using Docker:
 
 ```sh
@@ -68,9 +74,10 @@ docker build -t sanitarr:local .
 
 docker run -it \
   --network host \
+  -e INTERVAL="1h" \
   -v /path/to/sanitarr-config.toml:/app/config.toml \
   sanitarr:local \
-  --log-level debug --config /app/config.toml
+  --log-level debug --config /app/config.toml --force-delete
 ```
 
 ### Using Docker Compose
@@ -87,6 +94,7 @@ services:
     pull_policy: never
     environment:
       LOG_LEVEL: debug
+      INTERVAL: 45m
     volumes:
       - ${CONFIGS_DIR}/sanitarr-config.toml:/app/config.toml
     command: ["--config", "/app/config.toml"]
@@ -101,13 +109,27 @@ services:
 To run Sanitarr, use the following command:
 
 ```sh
-./sanitarr
+sanitarr --config /path/to/config.toml [--log-level] [--force-delete]
+```
+
+For more detailed info on CLI arguments consult to `sanitarr --help`:
+
+```
+Usage: sanitarr [OPTIONS] --config <CONFIG>
+
+Options:
+  -d, --force-delete           Perform actual deletion of files. If not set the program will operate in a "dry run" mode
+  -l, --log-level <LOG_LEVEL>  Set the log level [default: info]
+  -c, --config <CONFIG>        Path to the config file
+  -h, --help                   Print help
+  -V, --version                Print version
+
 ```
 
 You can also specify the log level using the `LOG_LEVEL` environment variable:
 
 ```sh
-LOG_LEVEL=debug ./sanitarr
+LOG_LEVEL=debug sanitarr
 ```
 
 ## Contributing
