@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use clap::Parser;
 use cleaners::{MoviesCleaner, SeriesCleaner};
 use cli::Cli;
@@ -32,7 +34,13 @@ async fn main() -> anyhow::Result<()> {
 }
 
 fn setup_logging(level: &LevelFilter) -> anyhow::Result<()> {
-    let base_config = fern::Dispatch::new()
+    let log_level = std::env::var("LOG_LEVEL")
+        .ok()
+        .and_then(|lvl| LevelFilter::from_str(&lvl).ok())
+        .unwrap_or(*level);
+
+    fern::Dispatch::new()
+        .level(log_level)
         .format(|out, message, record| {
             out.finish(format_args!(
                 "{timestamp} [{level}] {message}",
@@ -41,8 +49,7 @@ fn setup_logging(level: &LevelFilter) -> anyhow::Result<()> {
                 message = message,
             ))
         })
-        .level(*level)
-        .chain(std::io::stdout());
-    base_config.apply()?;
+        .chain(std::io::stdout())
+        .apply()?;
     Ok(())
 }
