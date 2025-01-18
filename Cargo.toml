@@ -6,10 +6,11 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0.95"
 chron = "0.1.5"
-chrono = "0.4.39"
+chrono = { version = "0.4.39", features = ["serde"] }
 clap = { version = "4.5.26", features = ["derive", "env"] }
 fern = "0.7.1"
 futures = "0.3.31"
+humantime-serde = "1.1.1"
 log = "0.4.25"
 reqwest = { version = "0.12.12", features = ["json", "cookies"] }
 serde = { version = "1.0.217", features = ["derive"] }

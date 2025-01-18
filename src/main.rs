@@ -20,10 +20,10 @@ async fn main() -> anyhow::Result<()> {
     let download_client = DownloadService::new(&config.download_client).await?;
 
     let movies_cleaner =
-        MoviesCleaner::new(&config.radarr, jellyfin.clone(), download_client.clone())?;
+        MoviesCleaner::new(config.radarr, jellyfin.clone(), download_client.clone())?;
 
     let series_cleaner =
-        SeriesCleaner::new(&config.sonarr, jellyfin.clone(), download_client.clone())?;
+        SeriesCleaner::new(config.sonarr, jellyfin.clone(), download_client.clone())?;
 
     movies_cleaner.cleanup(args.force_delete).await?;
     series_cleaner.cleanup(args.force_delete).await?;

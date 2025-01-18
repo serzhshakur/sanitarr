@@ -30,6 +30,8 @@ api_key = "sadfa2345234asdfasd2345234"
 [radarr]
 base_url = "http://localhost:7878"
 api_key = "sadfa2345234asdfasd2345234"
+tags_to_keep = ["keep"]
+retention_period = "2d"
 
 [sonarr]
 base_url = "http://localhost:8989"

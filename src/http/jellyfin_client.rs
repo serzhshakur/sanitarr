@@ -1,5 +1,6 @@
 use super::ResponseExt;
 use anyhow::Ok;
+use chrono::NaiveDateTime;
 use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION};
 use reqwest::{Client, ClientBuilder, Url};
 use serde::{Deserialize, Serialize};
@@ -72,15 +73,18 @@ pub struct ItemsResponse {
 
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(test, derive(Default))]
 pub struct Item {
     pub name: String,
     pub provider_ids: ProviderIds,
+    pub user_data: Option<ItemUserData>,
 }
 
 impl Item {
     pub fn tmdb_id(&self) -> Option<&str> {
         self.provider_ids.tmdb.as_deref()
     }
+
     pub fn tvdb_id(&self) -> Option<&str> {
         self.provider_ids.tvdb.as_deref()
     }
@@ -88,9 +92,18 @@ impl Item {
 
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(test, derive(Default))]
 pub struct ProviderIds {
     pub tmdb: Option<String>,
     pub tvdb: Option<String>,
+}
+
+#[derive(Deserialize, Debug)]
+#[serde(rename_all = "PascalCase")]
+#[cfg_attr(test, derive(Default))]
+pub struct ItemUserData {
+    pub is_favorite: bool,
+    pub last_played_date: Option<NaiveDateTime>,
 }
 
 #[derive(Deserialize, Debug)]

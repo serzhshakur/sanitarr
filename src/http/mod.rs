@@ -3,10 +3,12 @@ mod qbittorrent_client;
 mod radarr_client;
 mod sonarr_client;
 
+#[cfg(test)]
+pub use jellyfin_client::ItemUserData;
 pub use jellyfin_client::{Item, ItemsFilter, JellyfinClient};
 use log::debug;
 pub use qbittorrent_client::QbittorrentClient;
-pub use radarr_client::RadarrClient;
+pub use radarr_client::{Movie, RadarrClient};
 pub use sonarr_client::{SeriesInfo, SonarrClient};
 
 use anyhow::bail;

@@ -17,16 +17,22 @@ pub struct SeriesCleaner {
 
 impl SeriesCleaner {
     pub fn new(
-        sonarr_config: &SonarrConfig,
+        sonarr_config: SonarrConfig,
         jellyfin: Arc<Jellyfin>,
         download_client: Arc<DownloadService>,
     ) -> anyhow::Result<Self> {
-        let sonarr_client = SonarrClient::new(&sonarr_config.base_url, &sonarr_config.api_key)?;
+        let SonarrConfig {
+            base_url,
+            api_key,
+            tags_to_keep,
+        } = sonarr_config;
+
+        let sonarr_client = SonarrClient::new(&base_url, &api_key)?;
         Ok(Self {
             sonarr_client,
             jellyfin,
             download_client,
-            tags_to_keep: sonarr_config.tags_to_keep.clone(),
+            tags_to_keep,
         })
     }
 

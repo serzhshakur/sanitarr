@@ -7,6 +7,8 @@ api_key = "qwerasdfzxcvjkl"
 [radarr]
 base_url = "http://localhost:7878"
 api_key = "qwerasdfzxcvjkl"
+tags_to_keep = ["keep"]
+retention_period = "2d"
 
 [sonarr]
 base_url = "http://localhost:7878"

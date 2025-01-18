@@ -90,6 +90,21 @@ impl RadarrClient {
             .await?;
         Ok(())
     }
+
+    /// Get all tags.
+    pub async fn tags(&self) -> anyhow::Result<Vec<Tag>> {
+        let url = self.base_url.join("tag")?;
+        let response = self
+            .client
+            .get(url)
+            .send()
+            .await?
+            .handle_error()
+            .await?
+            .json()
+            .await?;
+        Ok(response)
+    }
 }
 
 fn auth_headers(api_key: &str) -> Result<HeaderMap, anyhow::Error> {
@@ -103,8 +118,10 @@ fn auth_headers(api_key: &str) -> Result<HeaderMap, anyhow::Error> {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Movie {
+    pub title: String,
     pub id: u64,
     pub has_file: bool,
+    pub tags: Option<Vec<u64>>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -117,6 +134,13 @@ pub struct History {
 #[serde(rename_all = "camelCase")]
 pub struct HistoryRecord {
     pub download_id: Option<String>,
+}
+
+#[derive(Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct Tag {
+    pub label: String,
+    pub id: u64,
 }
 
 #[cfg(test)]
