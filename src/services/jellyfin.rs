@@ -31,15 +31,19 @@ impl Jellyfin {
             .ok_or_else(|| anyhow::anyhow!("User {} not found", self.username))
     }
 
-    pub async fn query_watched(&self, item_types: &[&str]) -> anyhow::Result<Vec<Item>> {
+    pub async fn items(&self, filter: ItemsFilter<'_>) -> anyhow::Result<Vec<Item>> {
+        self.client.items(filter).await
+    }
+
+    pub async fn watched_items(&self, item_types: &[&str]) -> anyhow::Result<Vec<Item>> {
         let user_id = self.user_id().await?;
         let filter = ItemsFilter::new()
             .user_id(&user_id)
             .recursive()
             .played()
             .favorite(false)
-            .fields(&["ProviderIds", "Path"])
+            .fields(&["ProviderIds"])
             .include_item_types(item_types);
-        self.client.items(filter).await
+        self.items(filter).await
     }
 }

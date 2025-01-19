@@ -1,6 +1,6 @@
 use super::ResponseExt;
 use anyhow::Ok;
-use chrono::NaiveDateTime;
+use chrono::{DateTime, Utc};
 use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION};
 use reqwest::{Client, ClientBuilder, Url};
 use serde::{Deserialize, Serialize};
@@ -76,6 +76,7 @@ pub struct ItemsResponse {
 #[cfg_attr(test, derive(Default))]
 pub struct Item {
     pub name: String,
+    pub id: String,
     pub provider_ids: ProviderIds,
     pub user_data: Option<ItemUserData>,
 }
@@ -102,8 +103,7 @@ pub struct ProviderIds {
 #[serde(rename_all = "PascalCase")]
 #[cfg_attr(test, derive(Default))]
 pub struct ItemUserData {
-    pub is_favorite: bool,
-    pub last_played_date: Option<NaiveDateTime>,
+    pub last_played_date: Option<DateTime<Utc>>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -117,7 +117,7 @@ pub struct User {
 /// for more details
 ///
 /// [docs]: https://api.jellyfin.org/#tag/Items/operation/GetItems
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct ItemsFilter<'a> {
     #[serde(serialize_with = "to_comma_separated")]
@@ -127,7 +127,10 @@ pub struct ItemsFilter<'a> {
     is_favorite: Option<bool>,
     is_played: Option<bool>,
     recursive: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     user_id: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    parent_id: Option<&'a str>,
 }
 
 impl<'a> ItemsFilter<'a> {
@@ -139,11 +142,17 @@ impl<'a> ItemsFilter<'a> {
             is_played: None,
             recursive: None,
             user_id: None,
+            parent_id: None,
         }
     }
 
     pub fn user_id(mut self, user_id: &'a str) -> Self {
         self.user_id = Some(user_id);
+        self
+    }
+
+    pub fn parent_id(mut self, parent_id: &'a str) -> Self {
+        self.parent_id = Some(parent_id);
         self
     }
 

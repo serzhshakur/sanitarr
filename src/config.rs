@@ -34,6 +34,8 @@ pub struct RadarrConfig {
 pub struct SonarrConfig {
     pub base_url: String,
     pub api_key: String,
+    #[serde(with = "humantime_serde")]
+    pub retention_period: Duration,
     #[serde(default)]
     pub tags_to_keep: Vec<String>,
 }

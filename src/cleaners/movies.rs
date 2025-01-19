@@ -28,9 +28,6 @@ impl MoviesCleaner {
             tags_to_keep,
             retention_period,
         } = radarr_config;
-
-        info!("retention period: {:?}", retention_period);
-
         let radarr_client = RadarrClient::new(&base_url, &api_key)?;
 
         Ok(Self {
@@ -43,7 +40,7 @@ impl MoviesCleaner {
     }
 
     pub async fn cleanup(&self, force_delete: bool) -> anyhow::Result<()> {
-        let items = self.jellyfin.query_watched(&["Movie", "Video"]).await?;
+        let items = self.watched_items().await?;
         if items.is_empty() {
             log::info!("no movies found for deletion in Jellyfin!");
             return Ok(());
@@ -57,6 +54,31 @@ impl MoviesCleaner {
             .await?;
 
         Ok(())
+    }
+
+    async fn watched_items(&self) -> anyhow::Result<Vec<Item>> {
+        let items = self.jellyfin.watched_items(&["Movie", "Video"]).await?;
+        let retention_date = chrono::Utc::now() - self.retention_period;
+        let mut safe_to_delete_items = vec![];
+
+        for item in items {
+            let old_enough = item
+                .user_data
+                .as_ref()
+                .and_then(|user_data| user_data.last_played_date)
+                .is_some_and(|last_played| retention_date > last_played);
+
+            if old_enough {
+                safe_to_delete_items.push(item);
+            } else {
+                debug!(
+                    "last played date for '{}' is after retention date {}, skipping",
+                    item.name,
+                    retention_date.format("%Y-%m-%d %H:%M:%S")
+                );
+            }
+        }
+        Ok(safe_to_delete_items)
     }
 
     async fn forbidden_tags(&self) -> anyhow::Result<Vec<u64>> {
@@ -103,11 +125,7 @@ impl MoviesCleaner {
         force_delete: bool,
         items: &[Item],
     ) -> anyhow::Result<HashSet<String>> {
-        let tmdb_ids: Vec<&str> = items
-            .iter()
-            .filter(|i| item_safe_to_delete(i, &self.retention_period))
-            .filter_map(|item| item.tmdb_id())
-            .collect();
+        let tmdb_ids: Vec<&str> = items.iter().filter_map(|item| item.tmdb_id()).collect();
 
         let forbidden_tags = self.forbidden_tags().await?;
         let ids_futs = tmdb_ids
@@ -140,27 +158,6 @@ impl MoviesCleaner {
     }
 }
 
-/// Check if it is safe to delete the item based on the retention period
-pub fn item_safe_to_delete(item: &Item, retention_period: &Duration) -> bool {
-    if let Some(user_data) = &item.user_data {
-        if user_data.is_favorite {
-            debug!("item '{}' is marked as favorite, skipping", item.name);
-            return false;
-        }
-        if let Some(last_played_date) = user_data.last_played_date {
-            let retention_date = chrono::Utc::now().naive_utc() - *retention_period;
-            if last_played_date > retention_date {
-                debug!(
-                    "item '{}' last played date is within retention period {retention_period:?}, skipping",
-                    item.name
-                );
-                return false;
-            }
-        }
-    }
-    true
-}
-
 /// check if it's safe to delete a movie.
 fn movie_safe_to_delete(movie: &Movie, forbidden_tags: &[u64]) -> bool {
     if movie.has_file {
@@ -183,50 +180,6 @@ fn movie_safe_to_delete(movie: &Movie, forbidden_tags: &[u64]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::http::ItemUserData;
-
-    #[test]
-    fn test_item_safe_to_delete() {
-        let retention_period = Duration::from_secs(60 * 60 * 24 * 30);
-        let last_played_date = chrono::Utc::now().naive_utc() - retention_period;
-        let item = Item {
-            user_data: Some(ItemUserData {
-                last_played_date: Some(last_played_date),
-                ..Default::default()
-            }),
-            ..Default::default()
-        };
-        assert!(item_safe_to_delete(&item, &retention_period));
-    }
-
-    #[test]
-    fn test_item_not_safe_to_delete_retention() {
-        let retention_period = Duration::from_secs(60 * 60 * 24 * 30);
-        let last_played_date =
-            chrono::Utc::now().naive_utc() - retention_period + Duration::from_secs(1);
-        let item = Item {
-            user_data: Some(ItemUserData {
-                last_played_date: Some(last_played_date),
-                ..Default::default()
-            }),
-            ..Default::default()
-        };
-        assert!(!item_safe_to_delete(&item, &retention_period));
-    }
-
-    #[test]
-    fn test_item_not_safe_to_delete_favorite() {
-        let retention_period = Duration::from_secs(60 * 60 * 24 * 30);
-        let last_played_date = chrono::Utc::now().naive_utc() - retention_period;
-        let item = Item {
-            user_data: Some(ItemUserData {
-                is_favorite: true,
-                last_played_date: Some(last_played_date),
-            }),
-            ..Default::default()
-        };
-        assert!(!item_safe_to_delete(&item, &retention_period));
-    }
 
     #[test]
     fn test_movie_safe_to_delete() {

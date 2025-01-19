@@ -1,10 +1,10 @@
 use crate::{
     config::SonarrConfig,
-    http::{Item, SeriesInfo, SonarrClient},
+    http::{Item, ItemsFilter, SeriesInfo, SonarrClient},
     services::{DownloadService, Jellyfin},
 };
 use log::{debug, info};
-use std::{collections::HashSet, sync::Arc};
+use std::{collections::HashSet, sync::Arc, time::Duration};
 
 /// SeriesCleaner is responsible for cleaning up watched series from Sonarr and
 /// Download client (e.g. qBittorrent).
@@ -13,6 +13,7 @@ pub struct SeriesCleaner {
     jellyfin: Arc<Jellyfin>,
     download_client: Arc<DownloadService>,
     tags_to_keep: Vec<String>,
+    retention_period: Duration,
 }
 
 impl SeriesCleaner {
@@ -25,6 +26,7 @@ impl SeriesCleaner {
             base_url,
             api_key,
             tags_to_keep,
+            retention_period,
         } = sonarr_config;
 
         let sonarr_client = SonarrClient::new(&base_url, &api_key)?;
@@ -33,17 +35,19 @@ impl SeriesCleaner {
             jellyfin,
             download_client,
             tags_to_keep,
+            retention_period,
         })
     }
 
     /// cleanup fully watched series from Sonarr and Download client
     pub async fn cleanup(&self, force_delete: bool) -> anyhow::Result<()> {
-        let items = self.jellyfin.query_watched(&["Series"]).await?;
+        let items = self.watched_items().await?;
+
         if items.is_empty() {
             log::info!("no fully watched series found!");
             return Ok(());
         }
-        let download_ids = self
+        let download_ids: HashSet<String> = self
             .delete_and_get_download_ids(force_delete, &items)
             .await?;
 
@@ -52,6 +56,44 @@ impl SeriesCleaner {
             .await?;
 
         Ok(())
+    }
+
+    async fn watched_items(&self) -> anyhow::Result<Vec<Item>> {
+        let items = self.jellyfin.watched_items(&["Series"]).await?;
+        let user_id = self.jellyfin.user_id().await?;
+        let retention_date = chrono::Utc::now() - self.retention_period;
+        let mut safe_to_delete_items = vec![];
+
+        for item in items {
+            // Items of type "Episode" are never marked as played, so we need to
+            // build a separate filter for them
+            let filter = ItemsFilter::new()
+                .user_id(&user_id)
+                .recursive()
+                .favorite(false)
+                .fields(&["ProviderIds"])
+                .parent_id(&item.id)
+                .include_item_types(&["Episode"]);
+
+            let episodes = self.jellyfin.items(filter).await?;
+            let old_enough = episodes.iter().all(|ep| {
+                ep.user_data
+                    .as_ref()
+                    .and_then(|user_data| user_data.last_played_date)
+                    .is_some_and(|last_played| retention_date > last_played)
+            });
+
+            if old_enough {
+                safe_to_delete_items.push(item);
+            } else {
+                debug!(
+                    "last played date for one or more episodes of '{}' is after retention date {}, skipping",
+                    item.name,
+                    retention_date.format("%Y-%m-%d %H:%M:%S")
+                );
+            }
+        }
+        Ok(safe_to_delete_items)
     }
 
     async fn forbidden_tags(&self) -> anyhow::Result<Vec<u64>> {

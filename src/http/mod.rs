@@ -3,8 +3,6 @@ mod qbittorrent_client;
 mod radarr_client;
 mod sonarr_client;
 
-#[cfg(test)]
-pub use jellyfin_client::ItemUserData;
 pub use jellyfin_client::{Item, ItemsFilter, JellyfinClient};
 use log::debug;
 pub use qbittorrent_client::QbittorrentClient;
