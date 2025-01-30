@@ -77,17 +77,17 @@ pub struct ItemsResponse {
 pub struct Item {
     pub name: String,
     pub id: String,
-    pub provider_ids: ProviderIds,
+    pub provider_ids: Option<ProviderIds>,
     pub user_data: Option<ItemUserData>,
 }
 
 impl Item {
     pub fn tmdb_id(&self) -> Option<&str> {
-        self.provider_ids.tmdb.as_deref()
+        self.provider_ids.as_ref()?.tmdb.as_deref()
     }
 
     pub fn tvdb_id(&self) -> Option<&str> {
-        self.provider_ids.tvdb.as_deref()
+        self.provider_ids.as_ref()?.tvdb.as_deref()
     }
 }
 

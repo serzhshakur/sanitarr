@@ -71,8 +71,6 @@ impl SeriesCleaner {
             let filter = ItemsFilter::new()
                 .user_id(&user_id)
                 .recursive()
-                .favorite(false)
-                .fields(&["ProviderIds"])
                 .parent_id(&item.id)
                 .include_item_types(&["Episode"]);
 
