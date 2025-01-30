@@ -81,61 +81,16 @@ impl MoviesCleaner {
         Ok(safe_to_delete_items)
     }
 
-    async fn forbidden_tags(&self) -> anyhow::Result<Vec<u64>> {
-        debug!("forbidden movies tags configured: {:?}", self.tags_to_keep);
-
-        let tags = self.radarr_client.tags().await?;
-        let forbidden_tags = tags
-            .iter()
-            .filter(|t| self.tags_to_keep.contains(&t.label))
-            .map(|t| t.id)
-            .collect();
-
-        debug!("forbidden tag ids: {forbidden_tags:?}");
-
-        Ok(forbidden_tags)
-    }
-
-    /// get the movie IDs for a given TMDB ID
-    async fn movie_ids(
-        &self,
-        tmdb_id: &str,
-        forbidden_tags: &[u64],
-    ) -> anyhow::Result<HashSet<u64>> {
-        let ids = self
-            .radarr_client
-            .movies_by_tmdb_id(tmdb_id)
-            .await?
-            .iter()
-            .filter_map(|movie| movie_safe_to_delete(movie, forbidden_tags).then_some(movie.id))
-            .collect();
-        Ok(ids)
-    }
-
-    /// query Radarr history for given movie ids and get download_id for each
-    async fn download_ids(&self, ids: &[u64]) -> anyhow::Result<HashSet<String>> {
-        let records = self.radarr_client.history_records(ids).await?;
-        let download_ids = records.into_iter().filter_map(|r| r.download_id).collect();
-        Ok(download_ids)
-    }
-
-    /// get the history for a list of movie IDs and delete them
+    /// find download ids for each item and delete provided items from Radarr if
+    /// `force_delete` is `true`
+    ///
+    /// Returns a list of download ids
     pub async fn delete_and_get_download_ids(
         &self,
         force_delete: bool,
         items: &[Item],
     ) -> anyhow::Result<HashSet<String>> {
-        let tmdb_ids: Vec<&str> = items.iter().filter_map(|item| item.tmdb_id()).collect();
-
-        let forbidden_tags = self.forbidden_tags().await?;
-        let ids_futs = tmdb_ids
-            .iter()
-            .map(|id| self.movie_ids(id, &forbidden_tags));
-        let ids = futures::future::try_join_all(ids_futs)
-            .await?
-            .into_iter()
-            .flat_map(|i| i.into_iter())
-            .collect::<Vec<u64>>();
+        let ids = self.movie_ids_for_deletion(items).await?;
 
         if ids.is_empty() {
             info!("no movies found for deletion in Radarr!");
@@ -156,15 +111,75 @@ impl MoviesCleaner {
 
         Ok(download_ids)
     }
+
+    /// finds Radarr's movie IDs for a given set of items and returns the ones
+    /// that are safe to delete
+    async fn movie_ids_for_deletion(&self, items: &[Item]) -> Result<Vec<u64>, anyhow::Error> {
+        let tmdb_ids: Vec<&str> = items.iter().filter_map(Item::tmdb_id).collect();
+        let forbidden_tags = self.forbidden_tags().await?;
+        let ids_futs = tmdb_ids
+            .iter()
+            .map(|id| self.item_movie_ids(id, &forbidden_tags));
+
+        // get flattenede list of ids
+        let ids = futures::future::try_join_all(ids_futs)
+            .await?
+            .into_iter()
+            .flat_map(HashSet::into_iter)
+            .collect();
+        Ok(ids)
+    }
+
+    /// queries Radarr history for given movie ids and gets corresponding
+    /// download_id for each
+    async fn download_ids(&self, ids: &[u64]) -> anyhow::Result<HashSet<String>> {
+        let download_ids = self
+            .radarr_client
+            .history_records(ids)
+            .await?
+            .into_iter()
+            .filter_map(|r| r.download_id)
+            .collect();
+        Ok(download_ids)
+    }
+
+    /// gets IDs of the tags that are configured to be kept
+    async fn forbidden_tags(&self) -> anyhow::Result<Vec<u64>> {
+        debug!("forbidden movies tags configured: {:?}", self.tags_to_keep);
+
+        let tags = self.radarr_client.tags().await?;
+        let forbidden_tags = tags
+            .iter()
+            .filter(|t| self.tags_to_keep.contains(&t.label))
+            .map(|t| t.id)
+            .collect();
+
+        debug!("forbidden tag ids: {forbidden_tags:?}");
+
+        Ok(forbidden_tags)
+    }
+
+    /// gets movie IDs for a given TMDB ID if a certain item is safe to delete.
+    /// A collection of ids is returned as there might be more than one file for
+    /// a given TMDB ID
+    async fn item_movie_ids(
+        &self,
+        tmdb_id: &str,
+        forbidden_tags: &[u64],
+    ) -> anyhow::Result<HashSet<u64>> {
+        let ids = self
+            .radarr_client
+            .movies_by_tmdb_id(tmdb_id)
+            .await?
+            .iter()
+            .filter_map(|movie| safe_to_delete(movie, forbidden_tags).then_some(movie.id))
+            .collect();
+        Ok(ids)
+    }
 }
 
 /// check if it's safe to delete a movie.
-fn movie_safe_to_delete(movie: &Movie, forbidden_tags: &[u64]) -> bool {
-    if movie.has_file {
-        debug!("movie '{}' not present on disk, skipping", movie.title);
-        return false;
-    }
-
+fn safe_to_delete(movie: &Movie, forbidden_tags: &[u64]) -> bool {
     let has_forbidden_tags = movie
         .tags
         .as_ref()
@@ -185,11 +200,19 @@ mod tests {
     fn test_movie_safe_to_delete() {
         let movie = Movie {
             title: "movie".to_string(),
-            has_file: false,
             tags: Some(vec![1, 2, 3]),
             id: 1,
         };
+        assert!(safe_to_delete(&movie, &[]));
+    }
 
-        assert!(movie_safe_to_delete(&movie, &[4, 5, 6]));
+    #[test]
+    fn test_movie_not_safe_to_delete_forbidden_tags() {
+        let movie = Movie {
+            title: "movie".to_string(),
+            tags: Some(vec![5]),
+            id: 1,
+        };
+        assert!(!safe_to_delete(&movie, &[4, 5, 6]));
     }
 }

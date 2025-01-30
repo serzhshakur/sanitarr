@@ -7,6 +7,8 @@ pub use jellyfin_client::{Item, ItemsFilter, JellyfinClient};
 use log::debug;
 pub use qbittorrent_client::QbittorrentClient;
 pub use radarr_client::{Movie, RadarrClient};
+#[cfg(test)]
+pub use sonarr_client::{Season, SeasonStatistics, SeriesStatistics};
 pub use sonarr_client::{SeriesInfo, SonarrClient};
 
 use anyhow::bail;

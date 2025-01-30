@@ -120,7 +120,6 @@ fn auth_headers(api_key: &str) -> Result<HeaderMap, anyhow::Error> {
 pub struct Movie {
     pub title: String,
     pub id: u64,
-    pub has_file: bool,
     pub tags: Option<Vec<u64>>,
 }
 

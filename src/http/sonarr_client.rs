@@ -1,5 +1,6 @@
 use super::ResponseExt;
 use anyhow::Ok;
+use chrono::{DateTime, Utc};
 use reqwest::header::{HeaderMap, HeaderValue};
 use reqwest::{Client, ClientBuilder, Url};
 use serde::Deserialize;
@@ -121,6 +122,7 @@ fn auth_headers(api_key: &str) -> Result<HeaderMap, anyhow::Error> {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(test, derive(Default))]
 pub struct SeriesInfo {
     pub title: String,
     pub id: u64,
@@ -131,6 +133,7 @@ pub struct SeriesInfo {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(test, derive(Default))]
 pub struct SeriesStatistics {
     pub size_on_disk: usize,
 }
@@ -138,14 +141,13 @@ pub struct SeriesStatistics {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Season {
-    pub monitored: bool,
     pub statistics: SeasonStatistics,
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SeasonStatistics {
-    pub next_airing: Option<String>,
+    pub next_airing: Option<DateTime<Utc>>,
     pub episode_file_count: usize,
     pub total_episode_count: usize,
 }

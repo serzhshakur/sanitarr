@@ -47,7 +47,7 @@ impl SeriesCleaner {
             log::info!("no fully watched series found!");
             return Ok(());
         }
-        let download_ids: HashSet<String> = self
+        let download_ids = self
             .delete_and_get_download_ids(force_delete, &items)
             .await?;
 
@@ -65,8 +65,9 @@ impl SeriesCleaner {
         let mut safe_to_delete_items = vec![];
 
         for item in items {
-            // Items of type "Episode" are never marked as played, so we need to
-            // build a separate filter for them
+            // Items of type "Episode" despite being watched sometime are not
+            // being marked as played, so we need to build a separate filter for
+            // them
             let filter = ItemsFilter::new()
                 .user_id(&user_id)
                 .recursive()
@@ -111,7 +112,7 @@ impl SeriesCleaner {
         Ok(forbidden_tags)
     }
 
-    /// get all series IDs for a given TVDB ID
+    /// get all series IDs from Sonarr for a given TVDB ID
     async fn series_ids(
         &self,
         tvdb_id: &str,
@@ -172,7 +173,7 @@ impl SeriesCleaner {
             debug!("attempting to delete series items {ids:?}");
             let delete_futs = ids.iter().map(|id| self.sonarr_client.delete_series(*id));
             let _ = futures::future::try_join_all(delete_futs).await?;
-            let items: Vec<&String> = items.iter().map(|i| &i.name).collect::<Vec<&String>>();
+            let items = items.iter().map(|i| &i.name);
             info!("successfully deleted series: {items:?}");
         }
 
@@ -196,15 +197,139 @@ fn safe_to_delete(series: &SeriesInfo, forbidden_tags: &[u64]) -> bool {
         return false;
     }
     let Some(seasons) = &series.seasons else {
+        debug!("{}: missing `seasons` entry, skipping", series.title);
+        return false;
+    };
+    if seasons.is_empty() {
         debug!("{}: series has no seasons, skipping", series.title);
         return false;
     };
     seasons.iter().all(|season| {
         let stats = &season.statistics;
-        let fully_downloaded = stats.episode_file_count == stats.total_episode_count;
-        let wont_air = season.monitored && stats.next_airing.is_none();
-        let not_interested = !season.monitored && stats.episode_file_count == 0;
-
-        fully_downloaded || wont_air || not_interested
+        let fully_downloaded = stats.episode_file_count >= stats.total_episode_count;
+        let wont_air = stats.next_airing.is_none();
+        fully_downloaded || wont_air
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::http::{Season, SeasonStatistics, SeriesStatistics};
+
+    const FORBIDDEN_TAGS: &[u64] = &[4, 5, 6];
+
+    #[test]
+    fn test_safe_to_delete_as_fully_downloaded() {
+        let season_1 = Season {
+            statistics: SeasonStatistics {
+                next_airing: None,
+                episode_file_count: 1,
+                total_episode_count: 1,
+            },
+        };
+        let season_2 = Season {
+            statistics: SeasonStatistics {
+                next_airing: None,
+                episode_file_count: 11,
+                total_episode_count: 10,
+            },
+        };
+        let series = SeriesInfo {
+            statistics: SeriesStatistics { size_on_disk: 1 },
+            seasons: Some(vec![season_1, season_2]),
+            ..Default::default()
+        };
+
+        assert!(safe_to_delete(&series, &[]));
+    }
+
+    #[test]
+    fn test_safe_to_delete_as_wont_air() {
+        let season = Season {
+            statistics: SeasonStatistics {
+                next_airing: None,
+                episode_file_count: 1,
+                total_episode_count: 10,
+            },
+        };
+        let series = SeriesInfo {
+            statistics: SeriesStatistics { size_on_disk: 1 },
+            seasons: Some(vec![season]),
+            ..Default::default()
+        };
+
+        assert!(safe_to_delete(&series, &[]));
+    }
+
+    #[test]
+    fn test_not_safe_to_delete_as_will_air() {
+        let season_1 = Season {
+            statistics: SeasonStatistics {
+                next_airing: Some(Default::default()),
+                episode_file_count: 1,
+                total_episode_count: 2,
+            },
+        };
+        let season_2 = Season {
+            statistics: SeasonStatistics {
+                next_airing: None,
+                episode_file_count: 10,
+                total_episode_count: 10,
+            },
+        };
+        let series = SeriesInfo {
+            statistics: SeriesStatistics { size_on_disk: 1 },
+            seasons: Some(vec![season_1, season_2]),
+            ..Default::default()
+        };
+
+        assert!(!safe_to_delete(&series, &[]));
+    }
+
+    #[test]
+    fn test_not_safe_to_delete_no_seasons() {
+        let series = SeriesInfo {
+            statistics: SeriesStatistics { size_on_disk: 1 },
+            seasons: None,
+            ..Default::default()
+        };
+
+        assert!(!safe_to_delete(&series, FORBIDDEN_TAGS));
+    }
+
+    #[test]
+    fn test_not_safe_to_delete_empty_seasons() {
+        let series = SeriesInfo {
+            tags: Some(vec![]),
+            statistics: SeriesStatistics { size_on_disk: 1 },
+            seasons: Some(vec![]),
+            ..Default::default()
+        };
+
+        assert!(!safe_to_delete(&series, &[]));
+    }
+
+    #[test]
+    fn test_not_safe_to_delete_zero_size() {
+        let series = SeriesInfo {
+            statistics: SeriesStatistics { size_on_disk: 0 },
+            seasons: Some(vec![]),
+            ..Default::default()
+        };
+
+        assert!(!safe_to_delete(&series, FORBIDDEN_TAGS));
+    }
+
+    #[test]
+    fn test_not_safe_to_delete_forbidden_tags() {
+        let series = SeriesInfo {
+            tags: Some(vec![1, 2, 3, 4]),
+            statistics: SeriesStatistics { size_on_disk: 1 },
+            seasons: Some(vec![]),
+            ..Default::default()
+        };
+
+        assert!(!safe_to_delete(&series, FORBIDDEN_TAGS));
+    }
 }
