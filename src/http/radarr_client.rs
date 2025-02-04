@@ -49,7 +49,7 @@ impl RadarrClient {
         movie_ids: &[u64],
     ) -> anyhow::Result<HashSet<HistoryRecord>> {
         let url = self.base_url.join("history")?;
-        let mut query: Vec<(&str, u64)> = movie_ids.iter().map(|id| ("movieIds[]", *id)).collect();
+        let mut query: Vec<(&str, u64)> = movie_ids.iter().map(|id| ("movieIds", *id)).collect();
         query.push(("pageSize", 100));
 
         let mut records = HashSet::new();

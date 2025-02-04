@@ -27,6 +27,8 @@ impl DownloadService {
             if force_delete {
                 self.0.delete_torrents(hashes).await?;
                 info!("deleted {} torrents", torrents.len());
+            } else if !torrents.is_empty() {
+                info!("no torrents will be deleted as no `--force-delete` flag is provided");
             }
         }
         Ok(())
