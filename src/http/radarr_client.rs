@@ -49,7 +49,10 @@ impl RadarrClient {
         movie_ids: &[u64],
     ) -> anyhow::Result<HashSet<HistoryRecord>> {
         let url = self.base_url.join("history")?;
-        let mut query: Vec<(&str, u64)> = movie_ids.iter().map(|id| ("movieIds", *id)).collect();
+        let mut query: Vec<_> = movie_ids.iter().map(|id| ("movieIds", *id)).collect();
+        // event type 1 = "grabbed", see docs for more info:
+        // https://github.com/Radarr/Radarr/blob/develop/src/NzbDrone.Core/History/History.cs
+        query.push(("eventType", 1));
         query.push(("pageSize", 100));
 
         let mut records = HashSet::new();

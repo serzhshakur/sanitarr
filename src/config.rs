@@ -44,6 +44,7 @@ pub struct SonarrConfig {
 #[serde(tag = "type")]
 #[serde(deny_unknown_fields)]
 pub enum DownloadClientConfig {
+    #[serde(alias = "qbittorrent")]
     Qbittorrent(QbittorrentConfig),
     // add more clients here
 }
@@ -61,5 +62,38 @@ impl Config {
         let config = tokio::fs::read_to_string(path).await?;
         let config: Config = toml::from_str(&config)?;
         Ok(config)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_parse_config() -> anyhow::Result<()> {
+        let cfg = Config::load("example.config.toml").await?;
+        assert_eq!(cfg.username, "foo");
+
+        assert_eq!(cfg.jellyfin.api_key, "api-key-foo");
+        assert_eq!(cfg.jellyfin.base_url, "http://localhost:8096");
+
+        assert_eq!(cfg.radarr.base_url, "http://localhost:7878");
+        assert_eq!(cfg.radarr.api_key, "api-key-foo");
+        assert_eq!(&cfg.radarr.tags_to_keep, &["keep".to_owned()]);
+        let dur = 60 * 60 * 24 * 2;
+        assert_eq!(cfg.radarr.retention_period, Duration::from_secs(dur));
+
+        assert_eq!(cfg.sonarr.base_url, "http://localhost:7878");
+        assert_eq!(cfg.sonarr.api_key, "api-key-foo");
+        assert_eq!(&cfg.sonarr.tags_to_keep, &["keep".to_owned()]);
+        let dur = 60 * 60 * 24 * 7;
+        assert_eq!(cfg.sonarr.retention_period, Duration::from_secs(dur));
+
+        let DownloadClientConfig::Qbittorrent(cfg) = cfg.download_client;
+        assert_eq!(cfg.base_url, "http://localhost:8080");
+        assert_eq!(cfg.username, "admin");
+        assert_eq!(cfg.password, "adminadmin");
+
+        Ok(())
     }
 }

@@ -146,36 +146,43 @@ impl<'a> ItemsFilter<'a> {
         }
     }
 
+    #[must_use]
     pub fn user_id(mut self, user_id: &'a str) -> Self {
         self.user_id = Some(user_id);
         self
     }
-
+    
+    #[must_use]
     pub fn parent_id(mut self, parent_id: &'a str) -> Self {
         self.parent_id = Some(parent_id);
         self
     }
-
+    
+    #[must_use]
     pub fn played(mut self) -> Self {
         self.is_played = Some(true);
         self
     }
-
+    
+    #[must_use]
     pub fn recursive(mut self) -> Self {
         self.recursive = Some(true);
         self
     }
-
+    
+    #[must_use]
     pub fn favorite(mut self, value: bool) -> Self {
         self.is_favorite = Some(value);
         self
     }
-
+    
+    #[must_use]
     pub fn include_item_types(mut self, types: &'a [&'a str]) -> Self {
         self.include_item_types = Some(types);
         self
     }
-
+    
+    #[must_use]
     pub fn fields(mut self, fields: &'a [&'a str]) -> Self {
         self.fields = Some(fields);
         self

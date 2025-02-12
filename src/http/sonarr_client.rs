@@ -50,7 +50,10 @@ impl SonarrClient {
         movie_ids: &HashSet<u64>,
     ) -> anyhow::Result<HashSet<HistoryRecord>> {
         let url = self.base_url.join("history")?;
-        let mut query: Vec<(&str, u64)> = movie_ids.iter().map(|id| ("seriesIds", *id)).collect();
+        let mut query: Vec<_> = movie_ids.iter().map(|id| ("seriesIds", *id)).collect();
+        // event type 1 = "grabbed", see docs for more info:
+        // https://github.com/Sonarr/Sonarr/blob/v5-develop/src/NzbDrone.Core/History/EpisodeHistory.cs#L37
+        query.push(("eventType", 1));
         query.push(("pageSize", 100));
 
         let mut records = HashSet::new();

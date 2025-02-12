@@ -2,21 +2,22 @@ username = "foo"
 
 [jellyfin]
 base_url = "http://localhost:8096"
-api_key = "qwerasdfzxcvjkl"
+api_key = "api-key-foo"
 
 [radarr]
 base_url = "http://localhost:7878"
-api_key = "qwerasdfzxcvjkl"
+api_key = "api-key-foo"
 tags_to_keep = ["keep"]
 retention_period = "2d"
 
 [sonarr]
 base_url = "http://localhost:7878"
-api_key = "qwerasdfzxcvjkl"
+api_key = "api-key-foo"
 tags_to_keep = ["keep"]
+retention_period = "1w"
 
 [download_client]
-type = "Qbittorrent"
+type = "qbittorrent"
 base_url = "http://localhost:8080"
 username = "admin"
 password = "adminadmin"
