@@ -1,4 +1,5 @@
 use crate::{
+    cleaners::utils,
     config::SonarrConfig,
     http::{Item, ItemsFilter, SeriesInfo, SonarrClient},
     services::{DownloadService, Jellyfin},
@@ -75,21 +76,26 @@ impl SeriesCleaner {
                 .include_item_types(&["Episode"]);
 
             let episodes = self.jellyfin.items(filter).await?;
-            let old_enough = episodes.iter().all(|ep| {
-                ep.user_data
-                    .as_ref()
-                    .and_then(|user_data| user_data.last_played_date)
-                    .is_some_and(|last_played| retention_date > last_played)
-            });
+            let max_last_played = episodes
+                .iter()
+                .filter_map(|episode| {
+                    episode
+                        .user_data
+                        .as_ref()
+                        .and_then(|user_data| user_data.last_played_date)
+                })
+                .max();
 
-            if old_enough {
-                safe_to_delete_items.push(item);
-            } else {
-                debug!(
-                    "last played date for one or more episodes of '{}' is after retention date {}, skipping",
-                    item.name,
-                    retention_date.format("%Y-%m-%d %H:%M:%S")
-                );
+            if let Some(last_played) = max_last_played {
+                if retention_date > last_played {
+                    safe_to_delete_items.push(item);
+                } else {
+                    debug!(
+                        "retention period for one or more episodes of \"{}\" is not yet passed ({} left), skipping",
+                        item.name,
+                        utils::retention_str(&last_played, &retention_date)
+                    );
+                }
             }
         }
         Ok(safe_to_delete_items)

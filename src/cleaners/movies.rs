@@ -1,4 +1,5 @@
 use crate::{
+    cleaners::utils,
     config::RadarrConfig,
     http::{Item, Movie, RadarrClient},
     services::{DownloadService, Jellyfin},
@@ -62,21 +63,21 @@ impl MoviesCleaner {
         let mut safe_to_delete_items = vec![];
 
         for item in items {
-            let old_enough = item
+            if let Some(last_played) = item
                 .user_data
                 .as_ref()
                 .and_then(|user_data| user_data.last_played_date)
-                .is_some_and(|last_played| retention_date > last_played);
-
-            if old_enough {
-                safe_to_delete_items.push(item);
-            } else {
-                debug!(
-                    "last played date for '{}' is after retention date {}, skipping",
-                    item.name,
-                    retention_date.format("%Y-%m-%d %H:%M:%S")
-                );
-            }
+            {
+                if retention_date > last_played {
+                    safe_to_delete_items.push(item);
+                } else {
+                    debug!(
+                        "retention period for \"{}\" is not yet passed ({} left), skipping",
+                        item.name,
+                        utils::retention_str(&last_played, &retention_date)
+                    );
+                }
+            };
         }
         Ok(safe_to_delete_items)
     }
