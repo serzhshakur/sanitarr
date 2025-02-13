@@ -4,7 +4,7 @@ use crate::{
     http::{Item, Movie, RadarrClient},
     services::{DownloadService, Jellyfin},
 };
-use log::{debug, info};
+use log::{debug, info, warn};
 use std::{collections::HashSet, sync::Arc, time::Duration};
 
 pub struct MoviesCleaner {
@@ -12,7 +12,7 @@ pub struct MoviesCleaner {
     jellyfin: Arc<Jellyfin>,
     download_client: Arc<DownloadService>,
     tags_to_keep: Vec<String>,
-    retention_period: Duration,
+    retention_period: Option<Duration>,
 }
 
 /// MoviesCleaner is responsible for cleaning up watched movies from Radarr and
@@ -59,7 +59,13 @@ impl MoviesCleaner {
 
     async fn watched_items(&self) -> anyhow::Result<Vec<Item>> {
         let items = self.jellyfin.watched_items(&["Movie", "Video"]).await?;
-        let retention_date = chrono::Utc::now() - self.retention_period;
+        let Some(retention_period) = self.retention_period else {
+            if !items.is_empty() {
+                warn!("no retention period is set for Radarr, will delete all movies immediately");
+            }
+            return Ok(items);
+        };
+        let retention_date = chrono::Utc::now() - retention_period;
         let mut safe_to_delete_items = vec![];
 
         for item in items {
