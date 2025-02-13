@@ -23,8 +23,8 @@ pub struct JellyfinConfig {
 pub struct RadarrConfig {
     pub base_url: String,
     pub api_key: String,
-    #[serde(with = "humantime_serde")]
-    pub retention_period: Duration,
+    #[serde(with = "humantime_serde", default)]
+    pub retention_period: Option<Duration>,
     #[serde(default)]
     pub tags_to_keep: Vec<String>,
 }
@@ -34,8 +34,8 @@ pub struct RadarrConfig {
 pub struct SonarrConfig {
     pub base_url: String,
     pub api_key: String,
-    #[serde(with = "humantime_serde")]
-    pub retention_period: Duration,
+    #[serde(with = "humantime_serde", default)]
+    pub retention_period: Option<Duration>,
     #[serde(default)]
     pub tags_to_keep: Vec<String>,
 }
@@ -81,13 +81,13 @@ mod test {
         assert_eq!(cfg.radarr.api_key, "api-key-foo");
         assert_eq!(&cfg.radarr.tags_to_keep, &["keep".to_owned()]);
         let dur = 60 * 60 * 24 * 2;
-        assert_eq!(cfg.radarr.retention_period, Duration::from_secs(dur));
+        assert_eq!(cfg.radarr.retention_period, Some(Duration::from_secs(dur)));
 
         assert_eq!(cfg.sonarr.base_url, "http://localhost:7878");
         assert_eq!(cfg.sonarr.api_key, "api-key-foo");
         assert_eq!(&cfg.sonarr.tags_to_keep, &["keep".to_owned()]);
         let dur = 60 * 60 * 24 * 7;
-        assert_eq!(cfg.sonarr.retention_period, Duration::from_secs(dur));
+        assert_eq!(cfg.sonarr.retention_period, Some(Duration::from_secs(dur)));
 
         let DownloadClientConfig::Qbittorrent(cfg) = cfg.download_client;
         assert_eq!(cfg.base_url, "http://localhost:8080");

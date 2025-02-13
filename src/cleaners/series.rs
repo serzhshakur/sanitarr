@@ -14,7 +14,7 @@ pub struct SeriesCleaner {
     jellyfin: Arc<Jellyfin>,
     download_client: Arc<DownloadService>,
     tags_to_keep: Vec<String>,
-    retention_period: Duration,
+    retention_period: Option<Duration>,
 }
 
 impl SeriesCleaner {
@@ -62,7 +62,11 @@ impl SeriesCleaner {
     async fn watched_items(&self) -> anyhow::Result<Vec<Item>> {
         let items = self.jellyfin.watched_items(&["Series"]).await?;
         let user_id = self.jellyfin.user_id().await?;
-        let retention_date = chrono::Utc::now() - self.retention_period;
+
+        let Some(retention_period) = self.retention_period else {
+            return Ok(items);
+        };
+        let retention_date = chrono::Utc::now() - retention_period;
         let mut safe_to_delete_items = vec![];
 
         for item in items {
