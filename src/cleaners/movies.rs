@@ -1,15 +1,15 @@
 use crate::{
     cleaners::utils,
     config::RadarrConfig,
-    http::{Item, Movie, RadarrClient},
-    services::{DownloadService, Jellyfin},
+    http::{Item, ItemsFilter, JellyfinClient, Movie, RadarrClient, UserId},
+    services::DownloadService,
 };
 use log::{debug, info, warn};
 use std::{collections::HashSet, sync::Arc, time::Duration};
 
 pub struct MoviesCleaner {
     radarr_client: RadarrClient,
-    jellyfin: Arc<Jellyfin>,
+    jellyfin: Arc<JellyfinClient>,
     download_client: Arc<DownloadService>,
     tags_to_keep: Vec<String>,
     retention_period: Option<Duration>,
@@ -20,7 +20,7 @@ pub struct MoviesCleaner {
 impl MoviesCleaner {
     pub fn new(
         radarr_config: RadarrConfig,
-        jellyfin: Arc<Jellyfin>,
+        jellyfin: Arc<JellyfinClient>,
         download_client: Arc<DownloadService>,
     ) -> anyhow::Result<Self> {
         let RadarrConfig {
@@ -40,8 +40,9 @@ impl MoviesCleaner {
         })
     }
 
-    pub async fn cleanup(&self, force_delete: bool) -> anyhow::Result<()> {
-        let items = self.watched_items().await?;
+    pub async fn cleanup(&self, user_name: &str, force_delete: bool) -> anyhow::Result<()> {
+        let user = self.jellyfin.user(user_name).await?;
+        let items = self.watched_items(&user.id).await?;
         if items.is_empty() {
             log::info!("no movies found for deletion in Jellyfin!");
             return Ok(());
@@ -57,8 +58,16 @@ impl MoviesCleaner {
         Ok(())
     }
 
-    async fn watched_items(&self) -> anyhow::Result<Vec<Item>> {
-        let items = self.jellyfin.watched_items(&["Movie", "Video"]).await?;
+    async fn watched_items(&self, user_id: &UserId) -> anyhow::Result<Vec<Item>> {
+        let items = self
+            .jellyfin
+            .items(
+                ItemsFilter::watched()
+                    .user_id(user_id.as_ref())
+                    .include_item_types(&["Movie", "Video"]),
+            )
+            .await?;
+
         let Some(retention_period) = self.retention_period else {
             if !items.is_empty() {
                 warn!("no retention period is set for Radarr, will delete all movies immediately");
@@ -122,13 +131,13 @@ impl MoviesCleaner {
     /// finds Radarr's movie IDs for a given set of items and returns the ones
     /// that are safe to delete
     async fn movie_ids_for_deletion(&self, items: &[Item]) -> Result<Vec<u64>, anyhow::Error> {
-        let tmdb_ids: Vec<&str> = items.iter().filter_map(Item::tmdb_id).collect();
+        let tmdb_ids: Vec<_> = items.iter().filter_map(Item::tmdb_id).collect();
         let forbidden_tags = self.forbidden_tags().await?;
         let ids_futs = tmdb_ids
             .iter()
             .map(|id| self.item_movie_ids(id, &forbidden_tags));
 
-        // get flattenede list of ids
+        // get flattened list of ids
         let ids = futures::future::try_join_all(ids_futs)
             .await?
             .into_iter()

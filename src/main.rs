@@ -1,8 +1,9 @@
 use clap::Parser;
 use cleaners::{MoviesCleaner, SeriesCleaner};
 use cli::Cli;
+use http::JellyfinClient;
 use log::LevelFilter;
-use services::{DownloadService, Jellyfin};
+use services::DownloadService;
 
 mod cleaners;
 mod cli;
@@ -14,19 +15,30 @@ mod services;
 async fn main() -> anyhow::Result<()> {
     let args = Cli::parse();
     setup_logging(&args.log_level)?;
+
     let config = config::Config::load("config.toml").await?;
 
-    let jellyfin = Jellyfin::new(&config.username, &config.jellyfin)?;
+    let jellyfin_client = JellyfinClient::new(&config.jellyfin)?;
     let download_client = DownloadService::new(&config.download_client).await?;
 
-    let movies_cleaner =
-        MoviesCleaner::new(config.radarr, jellyfin.clone(), download_client.clone())?;
+    let movies_cleaner = MoviesCleaner::new(
+        config.radarr,
+        jellyfin_client.clone(),
+        download_client.clone(),
+    )?;
 
-    let series_cleaner =
-        SeriesCleaner::new(config.sonarr, jellyfin.clone(), download_client.clone())?;
+    let series_cleaner = SeriesCleaner::new(
+        config.sonarr,
+        jellyfin_client.clone(),
+        download_client.clone(),
+    )?;
 
-    movies_cleaner.cleanup(args.force_delete).await?;
-    series_cleaner.cleanup(args.force_delete).await?;
+    movies_cleaner
+        .cleanup(&config.username, args.force_delete)
+        .await?;
+    series_cleaner
+        .cleanup(&config.username, args.force_delete)
+        .await?;
 
     Ok(())
 }

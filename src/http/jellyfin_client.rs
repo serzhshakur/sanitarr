@@ -1,3 +1,7 @@
+use std::sync::Arc;
+
+use crate::config::JellyfinConfig;
+
 use super::ResponseExt;
 use anyhow::Ok;
 use chrono::{DateTime, Utc};
@@ -11,13 +15,14 @@ pub struct JellyfinClient {
 }
 
 impl JellyfinClient {
-    pub fn new(base_url: &str, api_key: &str) -> anyhow::Result<Self> {
+    pub fn new(config: &JellyfinConfig) -> anyhow::Result<Arc<Self>> {
+        let JellyfinConfig { base_url, api_key } = config;
         let base_url = Url::parse(base_url)?;
         let default_headers = auth_headers(api_key)?;
         let client = ClientBuilder::new()
             .default_headers(default_headers)
             .build()?;
-        Ok(Self { client, base_url })
+        Ok(Arc::new(Self { client, base_url }))
     }
 
     /// Get all items that match the given query filter
@@ -40,7 +45,7 @@ impl JellyfinClient {
 
     /// Get all users.
     /// https://api.jellyfin.org/#tag/User
-    pub async fn users(&self) -> anyhow::Result<Vec<User>> {
+    async fn users(&self) -> anyhow::Result<Vec<User>> {
         let url = self.base_url.join("Users")?;
         let response = self
             .client
@@ -53,6 +58,16 @@ impl JellyfinClient {
             .await?;
 
         Ok(response)
+    }
+
+    /// Get a user by it's username (not id). Throws an error if the user not
+    /// found
+    pub async fn user(&self, user_name: &str) -> anyhow::Result<User> {
+        self.users()
+            .await?
+            .into_iter()
+            .find(|user| user.name == user_name)
+            .ok_or_else(|| anyhow::anyhow!("User {} not found", user_name))
     }
 }
 
@@ -107,9 +122,18 @@ pub struct ItemUserData {
 }
 
 #[derive(Deserialize, Debug)]
+pub struct UserId(String);
+
+impl AsRef<str> for UserId {
+    fn as_ref(&self) -> &str {
+        self.0.as_ref()
+    }
+}
+
+#[derive(Deserialize, Debug)]
 #[serde(rename_all = "PascalCase")]
 pub struct User {
-    pub id: String,
+    pub id: UserId,
     pub name: String,
 }
 
@@ -151,41 +175,50 @@ impl<'a> ItemsFilter<'a> {
         self.user_id = Some(user_id);
         self
     }
-    
+
     #[must_use]
     pub fn parent_id(mut self, parent_id: &'a str) -> Self {
         self.parent_id = Some(parent_id);
         self
     }
-    
+
     #[must_use]
     pub fn played(mut self) -> Self {
         self.is_played = Some(true);
         self
     }
-    
+
     #[must_use]
     pub fn recursive(mut self) -> Self {
         self.recursive = Some(true);
         self
     }
-    
+
     #[must_use]
     pub fn favorite(mut self, value: bool) -> Self {
         self.is_favorite = Some(value);
         self
     }
-    
+
     #[must_use]
     pub fn include_item_types(mut self, types: &'a [&'a str]) -> Self {
         self.include_item_types = Some(types);
         self
     }
-    
+
     #[must_use]
     pub fn fields(mut self, fields: &'a [&'a str]) -> Self {
         self.fields = Some(fields);
         self
+    }
+
+    /// a convenience function to filter out watched items
+    pub fn watched() -> Self {
+        Self::new()
+            .recursive()
+            .played()
+            .favorite(false)
+            .fields(&["ProviderIds"])
     }
 }
 

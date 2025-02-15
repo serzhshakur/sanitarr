@@ -1,8 +1,8 @@
 use crate::{
     cleaners::utils,
     config::SonarrConfig,
-    http::{Item, ItemsFilter, SeriesInfo, SonarrClient},
-    services::{DownloadService, Jellyfin},
+    http::{Item, ItemsFilter, JellyfinClient, SeriesInfo, SonarrClient, UserId},
+    services::DownloadService,
 };
 use log::{debug, info, warn};
 use std::{collections::HashSet, sync::Arc, time::Duration};
@@ -11,7 +11,7 @@ use std::{collections::HashSet, sync::Arc, time::Duration};
 /// Download client (e.g. qBittorrent).
 pub struct SeriesCleaner {
     sonarr_client: SonarrClient,
-    jellyfin: Arc<Jellyfin>,
+    jellyfin: Arc<JellyfinClient>,
     download_client: Arc<DownloadService>,
     tags_to_keep: Vec<String>,
     retention_period: Option<Duration>,
@@ -20,7 +20,7 @@ pub struct SeriesCleaner {
 impl SeriesCleaner {
     pub fn new(
         sonarr_config: SonarrConfig,
-        jellyfin: Arc<Jellyfin>,
+        jellyfin: Arc<JellyfinClient>,
         download_client: Arc<DownloadService>,
     ) -> anyhow::Result<Self> {
         let SonarrConfig {
@@ -41,8 +41,9 @@ impl SeriesCleaner {
     }
 
     /// cleanup fully watched series from Sonarr and Download client
-    pub async fn cleanup(&self, force_delete: bool) -> anyhow::Result<()> {
-        let items = self.watched_items().await?;
+    pub async fn cleanup(&self, user_name: &str, force_delete: bool) -> anyhow::Result<()> {
+        let user = self.jellyfin.user(user_name).await?;
+        let items = self.watched_items(&user.id).await?;
 
         if items.is_empty() {
             log::info!("no fully watched series found!");
@@ -59,9 +60,15 @@ impl SeriesCleaner {
         Ok(())
     }
 
-    async fn watched_items(&self) -> anyhow::Result<Vec<Item>> {
-        let items = self.jellyfin.watched_items(&["Series"]).await?;
-        let user_id = self.jellyfin.user_id().await?;
+    async fn watched_items(&self, user_id: &UserId) -> anyhow::Result<Vec<Item>> {
+        let items = self
+            .jellyfin
+            .items(
+                ItemsFilter::watched()
+                    .user_id(user_id.as_ref())
+                    .include_item_types(&["Series"]),
+            )
+            .await?;
 
         let Some(retention_period) = self.retention_period else {
             if !items.is_empty() {
@@ -77,7 +84,7 @@ impl SeriesCleaner {
             // being marked as played, so we need to build a separate filter for
             // them
             let filter = ItemsFilter::new()
-                .user_id(&user_id)
+                .user_id(user_id.as_ref())
                 .recursive()
                 .parent_id(&item.id)
                 .include_item_types(&["Episode"]);
