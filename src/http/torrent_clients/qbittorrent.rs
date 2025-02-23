@@ -1,11 +1,14 @@
 use crate::config::QbittorrentConfig;
 use crate::http::ResponseExt;
 use anyhow::Ok;
+use async_trait::async_trait;
 use reqwest::header::{HeaderMap, HeaderValue, COOKIE};
 use reqwest::{Client, Url};
 use serde::Deserialize;
 use serde_json::json;
 use std::collections::HashSet;
+
+use super::TorrentClient;
 
 pub struct QbittorrentClient {
     client: Client,
@@ -45,13 +48,16 @@ impl QbittorrentClient {
             default_headers,
         })
     }
+}
 
+#[async_trait]
+impl TorrentClient for QbittorrentClient {
     /// List all torrents in the client by their hashes.
     /// https://github.com/qbittorrent/qBittorrent/wiki/WebUI-API-(qBittorrent-4.1)#get-torrent-list
-    pub async fn list_torrents(&self, hashes: &HashSet<String>) -> anyhow::Result<Vec<Torrent>> {
+    async fn list_torrents(&self, hashes: &HashSet<String>) -> anyhow::Result<Vec<String>> {
         let url = self.base_url.join("torrents/info")?;
         let hashes = to_bar_separated_string(hashes);
-        let response = self
+        let response: Vec<Torrent> = self
             .client
             .get(url)
             .query(&[("hashes", hashes)])
@@ -62,12 +68,13 @@ impl QbittorrentClient {
             .await?
             .json()
             .await?;
-        Ok(response)
+
+        Ok(response.into_iter().map(|t| t.name).collect())
     }
 
     /// Delete torrents by provided hashes and also delete the associated files.
     /// https://github.com/qbittorrent/qBittorrent/wiki/WebUI-API-(qBittorrent-4.1)#delete-torrents
-    pub async fn delete_torrents(&self, hashes: &HashSet<String>) -> anyhow::Result<()> {
+    async fn delete_torrents(&self, hashes: &HashSet<String>) -> anyhow::Result<()> {
         let url = self.base_url.join("torrents/delete")?;
         let hashes = to_bar_separated_string(hashes);
         let body = &[("hashes", hashes.as_str()), ("deleteFiles", "true")];

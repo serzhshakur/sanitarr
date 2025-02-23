@@ -1,12 +1,15 @@
 use crate::config::DelugeConfig;
 use crate::http::ResponseExt;
 use anyhow::{bail, Context, Ok};
+use async_trait::async_trait;
 use reqwest::header::{HeaderMap, HeaderValue, COOKIE};
 use reqwest::{Client, Url};
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
+
+use super::TorrentClient;
 
 const SESSION_COOKIE: &str = "_session_id";
 
@@ -56,9 +59,12 @@ impl DelugeClient {
 
         response.handle_response()
     }
+}
 
+#[async_trait]
+impl TorrentClient for DelugeClient {
     /// List all torrents in the client by their hashes.
-    pub async fn list_torrents(&self, hashes: &HashSet<String>) -> anyhow::Result<Vec<Torrent>> {
+    async fn list_torrents(&self, hashes: &HashSet<String>) -> anyhow::Result<Vec<String>> {
         let request = DelugeRequest::ListTorrents(hashes);
         let response = self.post::<HashMap<String, Torrent>>(request).await?;
 
@@ -66,11 +72,11 @@ impl DelugeClient {
             return Ok(Vec::default());
         };
 
-        Ok(result.into_values().collect())
+        Ok(result.into_values().map(|v| v.name).collect())
     }
 
     /// Delete torrents by provided hashes and also delete the associated files.
-    pub async fn delete_torrents(&self, hashes: &HashSet<String>) -> anyhow::Result<()> {
+    async fn delete_torrents(&self, hashes: &HashSet<String>) -> anyhow::Result<()> {
         let request = DelugeRequest::DeleteTorrents(hashes);
         self.post::<Vec<bool>>(request).await?;
 
