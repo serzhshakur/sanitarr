@@ -1,20 +1,20 @@
 [package]
 name = "sanitarr"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
 [dependencies]
-anyhow = "1.0.95"
+anyhow = "1.0.96"
 async-trait = "0.1.86"
 chron = "0.1.5"
 chrono = { version = "0.4.39", features = ["serde"] }
-clap = { version = "4.5.26", features = ["derive", "env"] }
+clap = { version = "4.5", features = ["derive", "env"] }
 fern = "0.7.1"
-futures = "0.3.31"
+futures = "0.3"
 humantime-serde = "1.1.1"
-log = "0.4.25"
+log = "0.4"
 reqwest = { version = "0.12.12", features = ["json", "cookies"] }
-serde = { version = "1.0.217", features = ["derive"] }
-serde_json = "1.0.135"
+serde = { version = "1.0.218", features = ["derive"] }
+serde_json = "1.0.139"
 tokio = { version = "1.43.0", features = ["rt-multi-thread", "net", "sync", "macros", "time", "fs"] }
-toml = "0.8.19"
+toml = "0.8"

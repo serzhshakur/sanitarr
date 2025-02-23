@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-FROM rust:1.84-slim-bullseye AS builder
+FROM rust:1.85-slim-bullseye AS builder
 WORKDIR /app
 
 RUN apt-get update -y \
