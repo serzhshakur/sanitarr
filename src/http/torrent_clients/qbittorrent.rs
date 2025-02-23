@@ -1,3 +1,4 @@
+use super::TorrentClient;
 use crate::config::QbittorrentConfig;
 use crate::http::ResponseExt;
 use anyhow::Ok;
@@ -7,8 +8,6 @@ use reqwest::{Client, Url};
 use serde::Deserialize;
 use serde_json::json;
 use std::collections::HashSet;
-
-use super::TorrentClient;
 
 pub struct QbittorrentClient {
     client: Client,

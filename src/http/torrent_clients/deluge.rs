@@ -1,3 +1,4 @@
+use super::TorrentClient;
 use crate::config::DelugeConfig;
 use crate::http::ResponseExt;
 use anyhow::{bail, Context, Ok};
@@ -8,8 +9,6 @@ use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
-
-use super::TorrentClient;
 
 const SESSION_COOKIE: &str = "_session_id";
 
@@ -57,7 +56,7 @@ impl DelugeClient {
             .json::<DelugeResponse>()
             .await?;
 
-        response.handle_response()
+        response.response()
     }
 }
 
@@ -106,7 +105,7 @@ async fn login(client: &Client, url: &Url, password: &str) -> Result<String, any
     response
         .json::<DelugeResponse>()
         .await?
-        .handle_response::<bool>()?;
+        .response::<bool>()?;
 
     sid_cookie
 }
@@ -119,7 +118,7 @@ enum DelugeRequest<'a> {
     DeleteTorrents(&'a HashSet<String>),
 }
 
-impl<'a> DelugeRequest<'a> {
+impl DelugeRequest<'_> {
     fn to_json(&self) -> Value {
         match self {
             DelugeRequest::Login(password) => json!(
@@ -186,7 +185,11 @@ struct DelugeResponse {
 }
 
 impl DelugeResponse {
-    fn handle_response<T: DeserializeOwned>(self) -> anyhow::Result<Option<T>> {
+    /// processes response received from Deluge API. Throws an error if response
+    /// contains a non-null `error` or it's `result` is set to `false`.
+    /// Otherwise deserializes the `result` into a type `T` and returns the
+    /// deserialized value
+    fn response<T: DeserializeOwned>(self) -> anyhow::Result<Option<T>> {
         if let Some(DelugeError { message, code }) = self.error {
             bail!("failed to call Deluge api: {message} (error code {code})")
         }
