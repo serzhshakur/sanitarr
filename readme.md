@@ -2,14 +2,14 @@
 
 Sanitarr is a tool designed to clean up your media library by integrating with
 the **\*arr** stack: Radarr, Sonarr, Jellyfin, and download client of your
-choice (currently only qBittorrent is supported). It helps you manage and
-maintain your media collection by removing fully watched items, thereby reducing
-the size of your collection on the disk and ensuring that your library is
-organized and up-to-date.
+choice (currently only qBittorrent and Deluge are supported). It helps you
+manage and maintain your media collection by removing fully watched items,
+thereby reducing the size of your collection on the disk.
 
 ## Features
 
-- Integrates with Radarr, Sonarr, Jellyfin, and Qbittorrent;
+- Integrates with Radarr, Sonarr, Jellyfin, and a number of torrent clients
+  (Qbittorrent or Deluge);
 - Cleans up movies and series based on your configuration;
 - Supports custom tags to keep specific files;
 - Provides logging and error handling;
@@ -18,7 +18,8 @@ organized and up-to-date.
 
 Sanitarr uses a configuration file to specify the settings for each service it
 integrates with. Below is an example configuration file in TOML format (all
-parameters should be self explanatory).
+parameters should be self explanatory). For more details check
+[src/config.rs](src/config.rs)
 
 ```toml
 username = "john"
@@ -37,12 +38,20 @@ retention_period = "2d"
 base_url = "http://localhost:8989"
 api_key = "sadfa2345234asdfasd2345234"
 tags_to_keep = ["keep", "no_remove"]
+retention_period = "1w"
 
 [download_client]
-type = "Qbittorrent"
+type = "qbittorrent"
 base_url = "http://localhost:6880"
 username = "admin"
 password = "adminadmin"
+
+# OR
+
+# [download_client]
+# type = "deluge"
+# base_url = "http://localhost:8112"
+# password = "qwerty"
 ```
 
 ## Installation

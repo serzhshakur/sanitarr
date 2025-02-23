@@ -46,6 +46,8 @@ pub struct SonarrConfig {
 pub enum DownloadClientConfig {
     #[serde(alias = "qbittorrent")]
     Qbittorrent(QbittorrentConfig),
+    #[serde(alias = "deluge")]
+    Deluge(DelugeConfig),
     // add more clients here
 }
 
@@ -53,6 +55,13 @@ pub enum DownloadClientConfig {
 #[serde(deny_unknown_fields)]
 pub struct QbittorrentConfig {
     pub username: String,
+    pub password: String,
+    pub base_url: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DelugeConfig {
     pub password: String,
     pub base_url: String,
 }
@@ -89,7 +98,9 @@ mod test {
         let dur = 60 * 60 * 24 * 7;
         assert_eq!(cfg.sonarr.retention_period, Some(Duration::from_secs(dur)));
 
-        let DownloadClientConfig::Qbittorrent(cfg) = cfg.download_client;
+        let DownloadClientConfig::Qbittorrent(cfg) = cfg.download_client else {
+            panic!("wrong download client");
+        };
         assert_eq!(cfg.base_url, "http://localhost:8080");
         assert_eq!(cfg.username, "admin");
         assert_eq!(cfg.password, "adminadmin");

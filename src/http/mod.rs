@@ -1,15 +1,15 @@
 mod jellyfin_client;
-mod qbittorrent_client;
 mod radarr_client;
 mod sonarr_client;
+mod torrent_clients;
 
 pub use jellyfin_client::{Item, ItemsFilter, JellyfinClient, UserId};
 use log::debug;
-pub use qbittorrent_client::QbittorrentClient;
 pub use radarr_client::{Movie, RadarrClient};
 #[cfg(test)]
 pub use sonarr_client::{Season, SeasonStatistics, SeriesStatistics};
 pub use sonarr_client::{SeriesInfo, SonarrClient};
+pub use torrent_clients::{DelugeClient, TorrentClient, QbittorrentClient};
 
 use anyhow::bail;
 use reqwest::Response;
