@@ -1,3 +1,4 @@
+// mod deluge_client;
 mod jellyfin_client;
 mod qbittorrent_client;
 mod radarr_client;
