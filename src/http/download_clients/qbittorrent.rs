@@ -1,5 +1,5 @@
-use super::ResponseExt;
 use crate::config::QbittorrentConfig;
+use crate::http::ResponseExt;
 use anyhow::Ok;
 use reqwest::header::{HeaderMap, HeaderValue, COOKIE};
 use reqwest::{Client, Url};

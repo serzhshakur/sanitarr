@@ -1,5 +1,5 @@
-use super::ResponseExt;
 use crate::config::DelugeConfig;
+use crate::http::ResponseExt;
 use anyhow::{bail, Context, Ok};
 use reqwest::header::{HeaderMap, HeaderValue, COOKIE};
 use reqwest::{Client, Url};

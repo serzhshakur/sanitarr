@@ -1,12 +1,11 @@
-// mod deluge_client;
+mod download_clients;
 mod jellyfin_client;
-mod qbittorrent_client;
 mod radarr_client;
 mod sonarr_client;
 
+pub use download_clients::QbittorrentClient;
 pub use jellyfin_client::{Item, ItemsFilter, JellyfinClient, UserId};
 use log::debug;
-pub use qbittorrent_client::QbittorrentClient;
 pub use radarr_client::{Movie, RadarrClient};
 #[cfg(test)]
 pub use sonarr_client::{Season, SeasonStatistics, SeriesStatistics};
