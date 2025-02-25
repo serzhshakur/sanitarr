@@ -19,7 +19,7 @@ async fn main() -> anyhow::Result<()> {
     let config = config::Config::load("config.toml").await?;
 
     let jellyfin_client = JellyfinClient::new(&config.jellyfin)?;
-    let download_client = DownloadService::new(&config.download_client).await?;
+    let download_client = DownloadService::new(config.download_clients, args.force_delete).await?;
 
     let movies_cleaner = MoviesCleaner::new(
         config.radarr,
