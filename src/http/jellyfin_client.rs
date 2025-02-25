@@ -5,7 +5,7 @@ use crate::config::JellyfinConfig;
 use super::ResponseExt;
 use anyhow::Ok;
 use chrono::{DateTime, Utc};
-use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION};
+use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderValue};
 use reqwest::{Client, ClientBuilder, Url};
 use serde::{Deserialize, Serialize};
 

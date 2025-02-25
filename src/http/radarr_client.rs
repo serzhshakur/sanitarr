@@ -4,6 +4,7 @@ use reqwest::header::{HeaderMap, HeaderValue};
 use reqwest::{Client, ClientBuilder, Url};
 use serde::Deserialize;
 use std::collections::HashSet;
+use std::fmt::Debug;
 
 /// A client for interacting with Radarr API.
 /// https://radarr.video/docs/api/
@@ -124,6 +125,12 @@ pub struct Movie {
     pub title: String,
     pub id: u64,
     pub tags: Option<Vec<u64>>,
+}
+
+impl Debug for Movie {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}({})", self.title, self.id)
+    }
 }
 
 #[derive(Deserialize)]

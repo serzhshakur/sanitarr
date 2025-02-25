@@ -5,6 +5,7 @@ use reqwest::header::{HeaderMap, HeaderValue};
 use reqwest::{Client, ClientBuilder, Url};
 use serde::Deserialize;
 use std::collections::HashSet;
+use std::fmt::Debug;
 
 /// A client for interacting with Sonarr API.
 /// https://sonarr.tv/docs/api/
@@ -132,6 +133,12 @@ pub struct SeriesInfo {
     pub tags: Option<Vec<u64>>,
     pub statistics: SeriesStatistics,
     pub seasons: Option<Vec<Season>>,
+}
+
+impl Debug for SeriesInfo {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}({})", self.title, self.id)
+    }
 }
 
 #[derive(Deserialize)]

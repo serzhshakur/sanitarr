@@ -1,8 +1,8 @@
 use crate::{
-    config::DownloadClientConfig,
+    config::DownloadClientsConfig,
     http::{DelugeClient, QbittorrentClient, TorrentClient, TorrentClientKind},
 };
-use log::{error, info};
+use log::{debug, error, info};
 use std::{
     collections::{HashMap, HashSet},
     sync::Arc,
@@ -10,72 +10,69 @@ use std::{
 
 /// This is a high level service that interacts with Download client API and
 /// transforms the data into a more usable format.
-pub struct DownloadService {
-    clients: HashMap<TorrentClientKind, GenericClient>,
-    force_delete: bool,
-}
+pub struct DownloadService(HashMap<TorrentClientKind, GenericClient>);
 
 type GenericClient = Box<dyn TorrentClient + Send + Sync>;
 
 impl DownloadService {
-    pub async fn new(
-        configs: Vec<DownloadClientConfig>,
-        force_delete: bool,
-    ) -> anyhow::Result<Arc<Self>> {
+    pub async fn new(cfg: DownloadClientsConfig) -> anyhow::Result<Arc<Self>> {
         let mut clients: HashMap<TorrentClientKind, GenericClient> = HashMap::new();
-        for cfg in configs {
-            let (kind, client): (TorrentClientKind, GenericClient) = match cfg {
-                DownloadClientConfig::Qbittorrent(cfg) => {
-                    let client = QbittorrentClient::new(&cfg).await?;
-                    (TorrentClientKind::Qbittorrent, Box::new(client))
-                }
-                DownloadClientConfig::Deluge(cfg) => {
-                    let client = DelugeClient::new(&cfg).await?;
-                    (TorrentClientKind::Deluge, Box::new(client))
-                }
-            };
 
-            clients.insert(kind, client);
+        if let Some(qbittorrent_cfg) = cfg.qbittorrent {
+            let client = QbittorrentClient::new(&qbittorrent_cfg).await?;
+            clients.insert(TorrentClientKind::Qbittorrent, Box::new(client));
         }
 
-        Ok(Arc::new(Self {
-            clients,
-            force_delete,
-        }))
+        if let Some(deluge_cfg) = cfg.deluge {
+            let client = DelugeClient::new(&deluge_cfg).await?;
+            clients.insert(TorrentClientKind::Deluge, Box::new(client));
+        }
+
+        Ok(Arc::new(Self(clients)))
     }
 
-    pub async fn delete(&self, hashes: HashSet<(TorrentClientKind, String)>) -> anyhow::Result<()> {
+    /// queries each torrent client API and retrieves torrents names. Then
+    /// writes the output to the log
+    pub async fn list(
+        &self,
+        hashes: &HashMap<TorrentClientKind, HashSet<String>>,
+    ) -> anyhow::Result<()> {
+        for (kind, hashes) in hashes {
+            let Some(client) = self.get_client(kind) else {
+                error!("unable to list torrents {hashes:?}, no client \"{kind}\" is configured");
+                continue;
+            };
+            let names = client.list_torrents(hashes).await?;
+            info!("found the following torrents for deletion: {names:?}");
+        }
+        Ok(())
+    }
+
+    /// queries each torrent client API and deletes torrents.
+    pub async fn delete(
+        &self,
+        hashes: &HashMap<TorrentClientKind, HashSet<String>>,
+    ) -> anyhow::Result<()> {
         if hashes.is_empty() {
             return Ok(());
         }
-
-        let mut per_client_hashes: HashMap<TorrentClientKind, HashSet<String>> = HashMap::new();
-        for (kind, hash) in hashes {
-            per_client_hashes.entry(kind).or_default().insert(hash);
-        }
-
-        for (kind, hashes) in per_client_hashes {
-            match self.clients.get(&kind) {
-                None => {
-                    error!(
-                        "unable to delete hashes {hashes:?}, no torrent client of kind \"{kind}\" defined in the system"
-                    );
-                }
-                Some(client) => {
-                    let torrents = client.list_torrents(&hashes).await?;
-                    info!("found the following torrents for deletion: {torrents:?}");
-
-                    if self.force_delete {
-                        client.delete_torrents(&hashes).await?;
-                        info!("deleted {} torrents", torrents.len());
-                    } else if !torrents.is_empty() {
-                        info!(
-                            "no torrents will be deleted as no `--force-delete` flag is provided"
-                        );
-                    }
-                }
+        for (kind, hashes) in hashes {
+            let Some(client) = self.get_client(kind) else {
+                error!("unable to delete torrents {hashes:?}, no client \"{kind}\" is configured");
+                continue;
+            };
+            let names = client.list_torrents(hashes).await?;
+            if names.is_empty() {
+                debug!("no torrents to delete for a given client \"{kind}\", skipping");
+            } else {
+                client.delete_torrents(hashes).await?;
+                info!("deleted torrents {names:?} from \"{kind}\"");
             }
         }
         Ok(())
+    }
+
+    fn get_client(&self, kind: &TorrentClientKind) -> Option<&GenericClient> {
+        self.0.get(kind)
     }
 }

@@ -5,7 +5,11 @@ use crate::{
     services::DownloadService,
 };
 use log::{debug, info, warn};
-use std::{collections::HashSet, sync::Arc, time::Duration};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+    time::Duration,
+};
 
 /// SeriesCleaner is responsible for cleaning up watched series from Sonarr and
 /// Download client (e.g. qBittorrent).
@@ -49,25 +53,27 @@ impl SeriesCleaner {
             return Ok(());
         }
 
-        let series_ids = self.series_ids_for_deletion(&items).await?;
+        let series = self.series_for_deletion(&items).await?;
 
-        if series_ids.is_empty() {
+        if series.is_empty() {
             info!("no series found for deletion!");
             return Ok(());
-        } else {
-            debug!("found series ids for deletion {series_ids:?}");
         }
 
-        let per_client_download_ids = self.download_ids(&series_ids).await?;
+        let series_ids = series.iter().map(|s| s.id).collect::<HashSet<u64>>();
+        let download_ids = self.download_ids(&series_ids).await?;
 
         if force_delete {
-            debug!("attempting to delete series items {series_ids:?}");
+            debug!("trying to delete series {series:?}");
             self.delete_series(&series_ids).await?;
+            info!("successfully deleted series: {series:?}");
 
-            let names = items.iter().map(|i| &i.name);
-            info!("successfully deleted series: {names:?}");
-
-            self.download_client.delete(per_client_download_ids).await?;
+            self.download_client.delete(&download_ids).await?;
+        } else {
+            info!(
+                "no items will be deleted as no `--force-delete` flag is provided. Listing them instead: {series:?}"
+            );
+            self.download_client.list(&download_ids).await?;
         }
 
         Ok(())
@@ -145,54 +151,59 @@ impl SeriesCleaner {
         Ok(forbidden_tags)
     }
 
-    /// get all series IDs from Sonarr for a given TVDB ID
-    async fn series_ids_for_tvdb_id(
+    /// get all series from Sonarr for a given TVDB ID
+    async fn series_for_tvdb_id(
         &self,
         tvdb_id: &str,
         forbidden_tags: &[u64],
-    ) -> anyhow::Result<HashSet<u64>> {
+    ) -> anyhow::Result<Vec<SeriesInfo>> {
         let ids = self
             .sonarr_client
             .series_by_tvdb_id(tvdb_id)
             .await?
-            .iter()
-            .filter_map(|series| safe_to_delete(series, forbidden_tags).then_some(series.id))
+            .into_iter()
+            .filter(|series| safe_to_delete(series, forbidden_tags))
             .collect();
         Ok(ids)
     }
 
-    /// query Sonarr history for given series ids and get download_id and
-    /// download client kind for each
+    /// query Sonarr history for given series ids and get download_ids per each
+    /// client kind for each
     async fn download_ids(
         &self,
         ids: &HashSet<u64>,
-    ) -> anyhow::Result<HashSet<(TorrentClientKind, String)>> {
+    ) -> anyhow::Result<HashMap<TorrentClientKind, HashSet<String>>> {
+        let mut per_client_hashes = HashMap::new();
         let records = self.sonarr_client.history_records(ids).await?;
-        let per_client_download_ids = records
-            .into_iter()
-            .filter_map(|r| r.download_id_per_client())
-            .collect();
-        Ok(per_client_download_ids)
+        for record in records {
+            if let Some((kind, hash)) = record.download_id_per_client() {
+                per_client_hashes
+                    .entry(kind)
+                    .or_insert_with(HashSet::new)
+                    .insert(hash);
+            }
+        }
+        Ok(per_client_hashes)
     }
 
     /// get all series ids for a given list of items that are safe to delete
-    async fn series_ids_for_deletion(&self, items: &[Item]) -> anyhow::Result<HashSet<u64>> {
+    async fn series_for_deletion(&self, items: &[Item]) -> anyhow::Result<Vec<SeriesInfo>> {
         if items.is_empty() {
-            return Ok(HashSet::default());
+            return Ok(Default::default());
         }
-        let tvdb_ids: Vec<&str> = items.iter().filter_map(|item| item.tvdb_id()).collect();
+        let tvdb_ids: Vec<&str> = items.iter().filter_map(Item::tvdb_id).collect();
         let forbidden_tags = self.forbidden_tags().await?;
 
-        let ids_futs = tvdb_ids
+        let futs = tvdb_ids
             .iter()
-            .map(|id| self.series_ids_for_tvdb_id(id, &forbidden_tags));
+            .map(|id| self.series_for_tvdb_id(id, &forbidden_tags));
 
-        let ids = futures::future::try_join_all(ids_futs)
+        let series = futures::future::try_join_all(futs)
             .await?
             .into_iter()
             .flat_map(|i| i.into_iter())
-            .collect::<HashSet<u64>>();
-        Ok(ids)
+            .collect::<Vec<SeriesInfo>>();
+        Ok(series)
     }
 
     /// delete series with given ids
