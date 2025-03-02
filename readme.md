@@ -112,8 +112,11 @@ services:
       LOG_LEVEL: debug
       INTERVAL: 45m
     volumes:
-      - ${CONFIGS_DIR}/sanitarr-config.toml:/app/config.toml
-    command: ["--config", "/app/config.toml"]
+      - /path/to/sanitarr-config.toml:/app/config.toml
+    command: 
+      - "--config"
+      - "/app/config.toml"
+      - "--force-delete"
     depends_on:
       - jellyfin
       - sonarr
