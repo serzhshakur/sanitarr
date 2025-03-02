@@ -1,16 +1,19 @@
 use crate::{
     cleaners::utils,
     config::RadarrConfig,
-    http::{Item, ItemsFilter, JellyfinClient, Movie, RadarrClient, UserId},
+    http::{Item, ItemsFilter, JellyfinClient, Movie, RadarrClient, TorrentClientKind, UserId},
     services::DownloadService,
 };
 use log::{debug, info, warn};
-use std::{collections::HashSet, sync::Arc, time::Duration};
+use std::{
+    collections::{HashMap, HashSet},
+    time::Duration,
+};
 
 pub struct MoviesCleaner {
     radarr_client: RadarrClient,
-    jellyfin: Arc<JellyfinClient>,
-    download_client: Arc<DownloadService>,
+    jellyfin: JellyfinClient,
+    download_client: DownloadService,
     tags_to_keep: Vec<String>,
     retention_period: Option<Duration>,
 }
@@ -20,8 +23,8 @@ pub struct MoviesCleaner {
 impl MoviesCleaner {
     pub fn new(
         radarr_config: RadarrConfig,
-        jellyfin: Arc<JellyfinClient>,
-        download_client: Arc<DownloadService>,
+        jellyfin: JellyfinClient,
+        download_client: DownloadService,
     ) -> anyhow::Result<Self> {
         let RadarrConfig {
             base_url,
@@ -47,13 +50,28 @@ impl MoviesCleaner {
             log::info!("no movies found for deletion in Jellyfin!");
             return Ok(());
         }
-        let download_ids = self
-            .delete_and_get_download_ids(force_delete, &items)
-            .await?;
 
-        self.download_client
-            .delete(force_delete, &download_ids)
-            .await?;
+        let movies = self.movies_for_deletion(&items).await?;
+
+        if movies.is_empty() {
+            info!("no movies found for deletion in Radarr!");
+            return Ok(());
+        }
+
+        let movie_ids = movies.iter().map(|m| m.id).collect();
+        let download_ids = self.download_ids(&movie_ids).await?;
+
+        if force_delete {
+            debug!("trying to delete items in Radarr: {movies:?}");
+            self.delete_movies(&movie_ids).await?;
+            info!("successfully deleted items from Radarr: {movies:?}");
+            self.download_client.delete(&download_ids).await?;
+        } else {
+            info!(
+                "no items will be deleted as no `--force-delete` flag is provided. Listing them instead: {movies:?}"
+            );
+            self.download_client.list(&download_ids).await?;
+        }
 
         Ok(())
     }
@@ -97,66 +115,50 @@ impl MoviesCleaner {
         Ok(safe_to_delete_items)
     }
 
-    /// find download ids for each item and delete provided items from Radarr if
-    /// `force_delete` is `true`
-    ///
-    /// Returns a list of download ids
-    pub async fn delete_and_get_download_ids(
-        &self,
-        force_delete: bool,
-        items: &[Item],
-    ) -> anyhow::Result<HashSet<String>> {
-        let ids = self.movie_ids_for_deletion(items).await?;
-
-        if ids.is_empty() {
-            info!("no movies found for deletion in Radarr!");
-            return Ok(HashSet::default());
-        } else {
-            debug!("found movie ids for deletion {ids:?}");
-        }
-
-        let download_ids = self.download_ids(&ids).await?;
-
-        if force_delete {
-            debug!("trying to delete items in Radarr: {ids:?}");
-            let delete_futs = ids.iter().map(|id| self.radarr_client.delete_movie(*id));
-            let _ = futures::future::try_join_all(delete_futs).await?;
-            let items = items.iter().map(|i| &i.name).collect::<Vec<&String>>();
-            info!("successfully deleted items from Radarr: {items:?}");
-        }
-
-        Ok(download_ids)
+    /// delete movies with given ids
+    async fn delete_movies(&self, movies_ids: &HashSet<u64>) -> anyhow::Result<()> {
+        let delete_futs = movies_ids
+            .iter()
+            .map(|id| self.radarr_client.delete_movie(*id));
+        let _ = futures::future::try_join_all(delete_futs).await?;
+        Ok(())
     }
 
     /// finds Radarr's movie IDs for a given set of items and returns the ones
     /// that are safe to delete
-    async fn movie_ids_for_deletion(&self, items: &[Item]) -> Result<Vec<u64>, anyhow::Error> {
+    async fn movies_for_deletion(&self, items: &[Item]) -> Result<Vec<Movie>, anyhow::Error> {
         let tmdb_ids: Vec<_> = items.iter().filter_map(Item::tmdb_id).collect();
         let forbidden_tags = self.forbidden_tags().await?;
-        let ids_futs = tmdb_ids
+        let movies_futs = tmdb_ids
             .iter()
-            .map(|id| self.item_movie_ids(id, &forbidden_tags));
+            .map(|id| self.filter_movies(id, &forbidden_tags));
 
         // get flattened list of ids
-        let ids = futures::future::try_join_all(ids_futs)
+        let movies = futures::future::try_join_all(movies_futs)
             .await?
             .into_iter()
-            .flat_map(HashSet::into_iter)
+            .flat_map(Vec::into_iter)
             .collect();
-        Ok(ids)
+        Ok(movies)
     }
 
     /// queries Radarr history for given movie ids and gets corresponding
-    /// download_id for each
-    async fn download_ids(&self, ids: &[u64]) -> anyhow::Result<HashSet<String>> {
-        let download_ids = self
-            .radarr_client
-            .history_records(ids)
-            .await?
-            .into_iter()
-            .filter_map(|r| r.download_id)
-            .collect();
-        Ok(download_ids)
+    /// download_id's per torrent client for each
+    async fn download_ids(
+        &self,
+        ids: &HashSet<u64>,
+    ) -> anyhow::Result<HashMap<TorrentClientKind, HashSet<String>>> {
+        let mut per_client_hashes = HashMap::new();
+        let records = self.radarr_client.history_records(ids).await?;
+        for record in records {
+            if let Some((kind, hash)) = record.download_id_per_client() {
+                per_client_hashes
+                    .entry(kind)
+                    .or_insert_with(HashSet::new)
+                    .insert(hash);
+            }
+        }
+        Ok(per_client_hashes)
     }
 
     /// gets IDs of the tags that are configured to be kept
@@ -175,22 +177,22 @@ impl MoviesCleaner {
         Ok(forbidden_tags)
     }
 
-    /// gets movie IDs for a given TMDB ID if a certain item is safe to delete.
-    /// A collection of ids is returned as there might be more than one file for
-    /// a given TMDB ID
-    async fn item_movie_ids(
+    /// gets movies by a given TMDB ID. Filters out movies that are safe to
+    /// delete. A collection of movies is returned as there might be more than
+    /// one file for a given TMDB ID
+    async fn filter_movies(
         &self,
         tmdb_id: &str,
         forbidden_tags: &[u64],
-    ) -> anyhow::Result<HashSet<u64>> {
-        let ids = self
+    ) -> anyhow::Result<Vec<Movie>> {
+        let movies = self
             .radarr_client
             .movies_by_tmdb_id(tmdb_id)
             .await?
-            .iter()
-            .filter_map(|movie| safe_to_delete(movie, forbidden_tags).then_some(movie.id))
+            .into_iter()
+            .filter(|movie| safe_to_delete(movie, forbidden_tags))
             .collect();
-        Ok(ids)
+        Ok(movies)
     }
 }
 

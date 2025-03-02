@@ -16,8 +16,11 @@ api_key = "api-key-foo"
 tags_to_keep = ["keep"]
 retention_period = "1w"
 
-[download_client]
-type = "qbittorrent"
+[download_clients.qbittorrent]
 base_url = "http://localhost:8080"
 username = "admin"
 password = "adminadmin"
+
+[download_clients.deluge]
+base_url = "http://localhost:8112"
+password = "qwerty"

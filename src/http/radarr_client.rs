@@ -1,9 +1,10 @@
-use super::ResponseExt;
+use super::{ResponseExt, TorrentClientKind};
 use anyhow::Ok;
 use reqwest::header::{HeaderMap, HeaderValue};
 use reqwest::{Client, ClientBuilder, Url};
 use serde::Deserialize;
 use std::collections::HashSet;
+use std::fmt::Debug;
 
 /// A client for interacting with Radarr API.
 /// https://radarr.video/docs/api/
@@ -46,7 +47,7 @@ impl RadarrClient {
     /// https://radarr.video/docs/api/#/History/get_api_v3_history
     pub async fn history_records(
         &self,
-        movie_ids: &[u64],
+        movie_ids: &HashSet<u64>,
     ) -> anyhow::Result<HashSet<HistoryRecord>> {
         let url = self.base_url.join("history")?;
         let mut query: Vec<_> = movie_ids.iter().map(|id| ("movieIds", *id)).collect();
@@ -126,16 +127,37 @@ pub struct Movie {
     pub tags: Option<Vec<u64>>,
 }
 
-#[derive(Deserialize, Debug)]
+impl Debug for Movie {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}({})", self.title, self.id)
+    }
+}
+
+#[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct History {
     pub records: HashSet<HistoryRecord>,
 }
 
-#[derive(Deserialize, Debug, Hash, Eq, PartialEq)]
+#[derive(Deserialize, Hash, Eq, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct HistoryRecord {
     pub download_id: Option<String>,
+    pub data: Option<HistoryRecordData>,
+}
+
+impl HistoryRecord {
+    pub fn download_id_per_client(self) -> Option<(TorrentClientKind, String)> {
+        let download_id = self.download_id?;
+        let client = self.data?.download_client?;
+        Some((client, download_id))
+    }
+}
+
+#[derive(Deserialize, Hash, Eq, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryRecordData {
+    pub download_client: Option<TorrentClientKind>,
 }
 
 #[derive(Deserialize, Debug)]

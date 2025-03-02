@@ -3,7 +3,7 @@ use crate::config::QbittorrentConfig;
 use crate::http::ResponseExt;
 use anyhow::Ok;
 use async_trait::async_trait;
-use reqwest::header::{HeaderMap, HeaderValue, COOKIE};
+use reqwest::header::{COOKIE, HeaderMap, HeaderValue};
 use reqwest::{Client, Url};
 use serde::Deserialize;
 use serde_json::json;

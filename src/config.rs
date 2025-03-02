@@ -8,7 +8,7 @@ pub struct Config {
     pub jellyfin: JellyfinConfig,
     pub radarr: RadarrConfig,
     pub sonarr: SonarrConfig,
-    pub download_client: DownloadClientConfig,
+    pub download_clients: DownloadClientsConfig,
 }
 
 #[derive(Deserialize)]
@@ -41,13 +41,10 @@ pub struct SonarrConfig {
 }
 
 #[derive(Deserialize)]
-#[serde(tag = "type")]
 #[serde(deny_unknown_fields)]
-pub enum DownloadClientConfig {
-    #[serde(alias = "qbittorrent")]
-    Qbittorrent(QbittorrentConfig),
-    #[serde(alias = "deluge")]
-    Deluge(DelugeConfig),
+pub struct DownloadClientsConfig {
+    pub qbittorrent: Option<QbittorrentConfig>,
+    pub deluge: Option<DelugeConfig>,
     // add more clients here
 }
 
@@ -68,8 +65,8 @@ pub struct DelugeConfig {
 
 impl Config {
     pub async fn load(path: &str) -> anyhow::Result<Self> {
-        let config = tokio::fs::read_to_string(path).await?;
-        let config: Config = toml::from_str(&config)?;
+        let config_str = tokio::fs::read_to_string(path).await?;
+        let config: Config = toml::from_str(&config_str)?;
         Ok(config)
     }
 }
@@ -77,6 +74,7 @@ impl Config {
 #[cfg(test)]
 mod test {
     use super::*;
+    use anyhow::Context;
 
     #[tokio::test]
     async fn test_parse_config() -> anyhow::Result<()> {
@@ -98,12 +96,22 @@ mod test {
         let dur = 60 * 60 * 24 * 7;
         assert_eq!(cfg.sonarr.retention_period, Some(Duration::from_secs(dur)));
 
-        let DownloadClientConfig::Qbittorrent(cfg) = cfg.download_client else {
-            panic!("wrong download client");
-        };
-        assert_eq!(cfg.base_url, "http://localhost:8080");
-        assert_eq!(cfg.username, "admin");
-        assert_eq!(cfg.password, "adminadmin");
+        let deluge_cfg = &cfg
+            .download_clients
+            .deluge
+            .context("no Deluge config defined")?;
+
+        let qbittorrent_cfg = &cfg
+            .download_clients
+            .qbittorrent
+            .context("no qBittorrent config defined")?;
+
+        assert_eq!(qbittorrent_cfg.base_url, "http://localhost:8080");
+        assert_eq!(qbittorrent_cfg.username, "admin");
+        assert_eq!(qbittorrent_cfg.password, "adminadmin");
+
+        assert_eq!(deluge_cfg.base_url, "http://localhost:8112");
+        assert_eq!(deluge_cfg.password, "qwerty");
 
         Ok(())
     }

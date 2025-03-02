@@ -1,15 +1,16 @@
 # Sanitarr
 
 Sanitarr is a tool designed to clean up your media library by integrating with
-the **\*arr** stack: Radarr, Sonarr, Jellyfin, and download client of your
-choice (currently only qBittorrent and Deluge are supported). It helps you
+the **\*arr** stack: Radarr, Sonarr, Jellyfin, and multiple download clients of
+your choice (currently only qBittorrent and Deluge are supported). It helps you
 manage and maintain your media collection by removing fully watched items,
 thereby reducing the size of your collection on the disk.
 
 ## Features
 
-- Integrates with Radarr, Sonarr, Jellyfin, and a number of torrent clients
-  (Qbittorrent or Deluge);
+- Integrates with Servarr stack (Radarr, Sonarr, Jellyfin) and a number of
+  torrent clients;
+- Supports multiple concurrently running torrent clients;
 - Cleans up movies and series based on your configuration;
 - Supports custom tags to keep specific files;
 - Provides logging and error handling;
@@ -40,18 +41,22 @@ api_key = "sadfa2345234asdfasd2345234"
 tags_to_keep = ["keep", "no_remove"]
 retention_period = "1w"
 
-[download_client]
-type = "qbittorrent"
+# You can configure multiple download clients running in your system.
+# Currently only 'qBittorrent' and 'Deluge' are supported.
+# Which client to delete a specific torrent from will be decided 
+# automatically based on the API response from either Sonarr or Radarr.
+# See "History" API reference for more details
+# - https://sonarr.tv/docs/api/#/History/get_api_v3_history
+# - https://radarr.video/docs/api/#/History/get_api_v3_history
+
+[download_clients.qbittorrent]
 base_url = "http://localhost:6880"
 username = "admin"
 password = "adminadmin"
 
-# OR
-
-# [download_client]
-# type = "deluge"
-# base_url = "http://localhost:8112"
-# password = "qwerty"
+[download_clients.deluge]
+base_url = "http://localhost:8112"
+password = "qwerty"
 ```
 
 ## Installation

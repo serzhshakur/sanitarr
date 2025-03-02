@@ -4,12 +4,12 @@ mod sonarr_client;
 mod torrent_clients;
 
 pub use jellyfin_client::{Item, ItemsFilter, JellyfinClient, UserId};
-use log::debug;
+use log::trace;
 pub use radarr_client::{Movie, RadarrClient};
 #[cfg(test)]
 pub use sonarr_client::{Season, SeasonStatistics, SeriesStatistics};
 pub use sonarr_client::{SeriesInfo, SonarrClient};
-pub use torrent_clients::{DelugeClient, TorrentClient, QbittorrentClient};
+pub use torrent_clients::{DelugeClient, QbittorrentClient, TorrentClient, TorrentClientKind};
 
 use anyhow::bail;
 use reqwest::Response;
@@ -22,7 +22,7 @@ impl ResponseExt for Response {
     async fn handle_error(self) -> anyhow::Result<Response> {
         let url = self.url();
         if self.status().is_success() {
-            debug!("request to {url} succeeded");
+            trace!("request to {url} succeeded");
             Ok(self)
         } else {
             let status = self.status();

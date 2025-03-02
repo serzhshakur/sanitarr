@@ -1,13 +1,13 @@
 use super::TorrentClient;
 use crate::config::DelugeConfig;
 use crate::http::ResponseExt;
-use anyhow::{bail, Context, Ok};
+use anyhow::{Context, Ok, bail};
 use async_trait::async_trait;
-use reqwest::header::{HeaderMap, HeaderValue, COOKIE};
+use reqwest::header::{COOKIE, HeaderMap, HeaderValue};
 use reqwest::{Client, Url};
-use serde::de::DeserializeOwned;
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde::de::DeserializeOwned;
+use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 
 const SESSION_COOKIE: &str = "_session_id";

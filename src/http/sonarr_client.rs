@@ -1,10 +1,11 @@
-use super::ResponseExt;
+use super::{ResponseExt, TorrentClientKind};
 use anyhow::Ok;
 use chrono::{DateTime, Utc};
 use reqwest::header::{HeaderMap, HeaderValue};
 use reqwest::{Client, ClientBuilder, Url};
 use serde::Deserialize;
 use std::collections::HashSet;
+use std::fmt::Debug;
 
 /// A client for interacting with Sonarr API.
 /// https://sonarr.tv/docs/api/
@@ -45,7 +46,7 @@ impl SonarrClient {
 
     /// Get the history records for a list of series IDs.
     /// https://sonarr.tv/docs/api/#/History/get_api_v3_history
-    pub async fn history_recods(
+    pub async fn history_records(
         &self,
         movie_ids: &HashSet<u64>,
     ) -> anyhow::Result<HashSet<HistoryRecord>> {
@@ -134,6 +135,12 @@ pub struct SeriesInfo {
     pub seasons: Option<Vec<Season>>,
 }
 
+impl Debug for SeriesInfo {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}({})", self.title, self.id)
+    }
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(test, derive(Default))]
@@ -155,16 +162,31 @@ pub struct SeasonStatistics {
     pub total_episode_count: usize,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct History {
     pub records: HashSet<HistoryRecord>,
 }
 
-#[derive(Deserialize, Debug, Hash, Eq, PartialEq)]
+#[derive(Deserialize, Hash, Eq, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct HistoryRecord {
     pub download_id: Option<String>,
+    pub data: Option<HistoryRecordData>,
+}
+
+impl HistoryRecord {
+    pub fn download_id_per_client(self) -> Option<(TorrentClientKind, String)> {
+        let download_id = self.download_id?;
+        let client = self.data?.download_client?;
+        Some((client, download_id))
+    }
+}
+
+#[derive(Deserialize, Hash, Eq, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryRecordData {
+    pub download_client: Option<TorrentClientKind>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -176,10 +198,57 @@ pub struct Tag {
 
 #[cfg(test)]
 mod tests {
+    use super::HistoryRecord;
+    use crate::http::sonarr_client::HistoryRecordData;
+
     #[test]
     fn test_auth_headers() {
         let headers = super::auth_headers("abc-key").unwrap();
         assert_eq!(headers.len(), 1);
         assert_eq!(headers.get("x-api-key").unwrap(), "abc-key");
+    }
+
+    #[test]
+    fn test_download_id_and_client() {
+        let history_record = HistoryRecord {
+            download_id: "foo".to_owned().into(),
+            data: Some(HistoryRecordData {
+                download_client: Some(crate::http::TorrentClientKind::Deluge),
+            }),
+        };
+        let (client, download_id) = history_record.download_id_per_client().unwrap();
+        assert!(matches!(client, crate::http::TorrentClientKind::Deluge));
+        assert_eq!(download_id, "foo");
+    }
+
+    #[test]
+    fn test_download_id_and_client_no_id() {
+        let history_record = HistoryRecord {
+            download_id: None,
+            data: Some(HistoryRecordData {
+                download_client: Some(crate::http::TorrentClientKind::Deluge),
+            }),
+        };
+        assert!(history_record.download_id_per_client().is_none());
+    }
+
+    #[test]
+    fn test_download_id_and_client_no_data() {
+        let history_record = HistoryRecord {
+            download_id: "foo".to_owned().into(),
+            data: None,
+        };
+        assert!(history_record.download_id_per_client().is_none());
+    }
+
+    #[test]
+    fn test_download_id_and_client_no_client() {
+        let history_record = HistoryRecord {
+            download_id: "foo".to_owned().into(),
+            data: Some(HistoryRecordData {
+                download_client: None,
+            }),
+        };
+        assert!(history_record.download_id_per_client().is_none());
     }
 }
