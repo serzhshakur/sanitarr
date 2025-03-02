@@ -1,28 +1,30 @@
-use std::sync::Arc;
-
-use crate::config::JellyfinConfig;
-
 use super::ResponseExt;
+use crate::config::JellyfinConfig;
 use anyhow::Ok;
 use chrono::{DateTime, Utc};
 use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderValue};
 use reqwest::{Client, ClientBuilder, Url};
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
+#[derive(Clone)]
 pub struct JellyfinClient {
-    client: Client,
+    client: Arc<Client>,
     base_url: Url,
 }
 
 impl JellyfinClient {
-    pub fn new(config: &JellyfinConfig) -> anyhow::Result<Arc<Self>> {
+    pub fn new(config: &JellyfinConfig) -> anyhow::Result<Self> {
         let JellyfinConfig { base_url, api_key } = config;
         let base_url = Url::parse(base_url)?;
         let default_headers = auth_headers(api_key)?;
         let client = ClientBuilder::new()
             .default_headers(default_headers)
             .build()?;
-        Ok(Arc::new(Self { client, base_url }))
+        Ok(Self {
+            client: Arc::new(client),
+            base_url,
+        })
     }
 
     /// Get all items that match the given query filter

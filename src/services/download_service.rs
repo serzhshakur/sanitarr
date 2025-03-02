@@ -1,21 +1,20 @@
-use crate::{
-    config::DownloadClientsConfig,
-    http::{DelugeClient, QbittorrentClient, TorrentClient, TorrentClientKind},
-};
+use crate::config::DownloadClientsConfig;
+use crate::http::{DelugeClient, QbittorrentClient, TorrentClient, TorrentClientKind};
 use log::{debug, error, info};
 use std::{
     collections::{HashMap, HashSet},
     sync::Arc,
 };
 
-/// This is a high level service that interacts with Download client API and
-/// transforms the data into a more usable format.
-pub struct DownloadService(HashMap<TorrentClientKind, GenericClient>);
+/// This is a high level service that interacts with various Download clients,
+/// that you define in a config file, through their API
+#[derive(Clone)]
+pub struct DownloadService(Arc<HashMap<TorrentClientKind, GenericClient>>);
 
 type GenericClient = Box<dyn TorrentClient + Send + Sync>;
 
 impl DownloadService {
-    pub async fn new(cfg: DownloadClientsConfig) -> anyhow::Result<Arc<Self>> {
+    pub async fn new(cfg: DownloadClientsConfig) -> anyhow::Result<Self> {
         let mut clients: HashMap<TorrentClientKind, GenericClient> = HashMap::new();
 
         if let Some(qbittorrent_cfg) = cfg.qbittorrent {
@@ -28,7 +27,7 @@ impl DownloadService {
             clients.insert(TorrentClientKind::Deluge, Box::new(client));
         }
 
-        Ok(Arc::new(Self(clients)))
+        Ok(Self(Arc::new(clients)))
     }
 
     /// queries each torrent client API and retrieves torrents names. Then
@@ -48,7 +47,8 @@ impl DownloadService {
         Ok(())
     }
 
-    /// queries each torrent client API and deletes torrents.
+    /// queries each torrent client API and deletes torrents by the given
+    /// hashes.
     pub async fn delete(
         &self,
         hashes: &HashMap<TorrentClientKind, HashSet<String>>,

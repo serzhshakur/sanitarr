@@ -7,14 +7,13 @@ use crate::{
 use log::{debug, info, warn};
 use std::{
     collections::{HashMap, HashSet},
-    sync::Arc,
     time::Duration,
 };
 
 pub struct MoviesCleaner {
     radarr_client: RadarrClient,
-    jellyfin: Arc<JellyfinClient>,
-    download_client: Arc<DownloadService>,
+    jellyfin: JellyfinClient,
+    download_client: DownloadService,
     tags_to_keep: Vec<String>,
     retention_period: Option<Duration>,
 }
@@ -24,8 +23,8 @@ pub struct MoviesCleaner {
 impl MoviesCleaner {
     pub fn new(
         radarr_config: RadarrConfig,
-        jellyfin: Arc<JellyfinClient>,
-        download_client: Arc<DownloadService>,
+        jellyfin: JellyfinClient,
+        download_client: DownloadService,
     ) -> anyhow::Result<Self> {
         let RadarrConfig {
             base_url,

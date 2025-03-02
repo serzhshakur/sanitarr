@@ -7,7 +7,6 @@ use crate::{
 use log::{debug, info, warn};
 use std::{
     collections::{HashMap, HashSet},
-    sync::Arc,
     time::Duration,
 };
 
@@ -15,8 +14,8 @@ use std::{
 /// Download client (e.g. qBittorrent).
 pub struct SeriesCleaner {
     sonarr_client: SonarrClient,
-    jellyfin: Arc<JellyfinClient>,
-    download_client: Arc<DownloadService>,
+    jellyfin: JellyfinClient,
+    download_client: DownloadService,
     tags_to_keep: Vec<String>,
     retention_period: Option<Duration>,
 }
@@ -24,8 +23,8 @@ pub struct SeriesCleaner {
 impl SeriesCleaner {
     pub fn new(
         sonarr_config: SonarrConfig,
-        jellyfin: Arc<JellyfinClient>,
-        download_client: Arc<DownloadService>,
+        jellyfin: JellyfinClient,
+        download_client: DownloadService,
     ) -> anyhow::Result<Self> {
         let SonarrConfig {
             base_url,
