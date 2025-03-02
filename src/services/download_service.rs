@@ -76,3 +76,101 @@ impl DownloadService {
         self.0.get(kind)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use async_trait::async_trait;
+    use std::sync::Mutex;
+
+    struct MockTorrentClient {
+        listed_hashes: Arc<Mutex<HashSet<String>>>,
+        deleted_hashes: Arc<Mutex<HashSet<String>>>,
+    }
+
+    impl MockTorrentClient {
+        fn new() -> Self {
+            Self {
+                listed_hashes: Arc::new(Mutex::new(HashSet::new())),
+                deleted_hashes: Arc::new(Mutex::new(HashSet::new())),
+            }
+        }
+    }
+
+    #[async_trait]
+    impl TorrentClient for MockTorrentClient {
+        async fn list_torrents(&self, hashes: &HashSet<String>) -> anyhow::Result<Vec<String>> {
+            let mut listed_hashes = self.listed_hashes.lock().unwrap();
+            listed_hashes.clear();
+            listed_hashes.extend(hashes.clone());
+
+            let response = ["foo", "bar", "baz"]
+                .into_iter()
+                .map(ToOwned::to_owned)
+                .collect();
+            Ok(response)
+        }
+
+        async fn delete_torrents(&self, hashes: &HashSet<String>) -> anyhow::Result<()> {
+            let mut deleted_hashes = self.deleted_hashes.lock().unwrap();
+            deleted_hashes.extend(hashes.clone());
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn test_download_service() -> anyhow::Result<()> {
+        let client = MockTorrentClient::new();
+        let listed_hashes = client.listed_hashes.clone();
+        let deleted_hashes = client.deleted_hashes.clone();
+
+        let mut clients: HashMap<TorrentClientKind, GenericClient> = HashMap::new();
+        clients.insert(TorrentClientKind::Qbittorrent, Box::new(client));
+
+        let service = DownloadService(Arc::new(clients));
+
+        let listed = HashSet::from(["a".to_string(), "b".to_string(), "c".to_string()]);
+        let listed_map = HashMap::from([(TorrentClientKind::Qbittorrent, listed.clone())]);
+
+        service.list(&listed_map).await?;
+        assert_eq!(*listed_hashes.lock().unwrap(), listed);
+
+        let deleted = HashSet::from(["d".to_string(), "e".to_string(), "f".to_string()]);
+        let deleted_map = HashMap::from([(TorrentClientKind::Qbittorrent, deleted.clone())]);
+
+        service.delete(&deleted_map).await?;
+
+        assert_eq!(*listed_hashes.lock().unwrap(), deleted);
+        assert_eq!(*deleted_hashes.lock().unwrap(), deleted);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_download_service_undefined_client() -> anyhow::Result<()> {
+        let client = MockTorrentClient::new();
+        let listed_hashes = client.listed_hashes.clone();
+        let deleted_hashes = client.deleted_hashes.clone();
+
+        let mut clients: HashMap<TorrentClientKind, GenericClient> = HashMap::new();
+        clients.insert(TorrentClientKind::Qbittorrent, Box::new(client));
+
+        let service = DownloadService(Arc::new(clients));
+
+        let listed = HashSet::from(["a".to_string(), "b".to_string(), "c".to_string()]);
+        let listed_map = HashMap::from([(TorrentClientKind::Deluge, listed)]);
+
+        service.list(&listed_map).await?;
+        assert!(listed_hashes.lock().unwrap().is_empty());
+
+        let deleted = HashSet::from(["d".to_string(), "e".to_string(), "f".to_string()]);
+        let deleted_map = HashMap::from([(TorrentClientKind::Deluge, deleted)]);
+
+        service.delete(&deleted_map).await?;
+
+        assert!(listed_hashes.lock().unwrap().is_empty());
+        assert!(deleted_hashes.lock().unwrap().is_empty());
+
+        Ok(())
+    }
+}
