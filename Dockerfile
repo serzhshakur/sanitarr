@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-FROM rust:1.85-slim-bullseye AS builder
+FROM rust:1.86-slim-bookworm AS builder
 WORKDIR /app
 
 RUN apt-get update -y \
@@ -14,13 +14,14 @@ RUN --mount=type=bind,source=src,target=src \
   <<EOF
 set -e
 cargo build --locked --release
-cp ./target/release/sanitarr /app
+mv ./target/release/sanitarr /app
 EOF
 
-FROM debian:bullseye-slim
-WORKDIR /app
-COPY --from=builder /app/sanitarr .
+FROM debian:bookworm-slim AS runtime
+RUN apt-get update && \
+    apt-get install -y libssl3 && \
+    rm -rf /var/cache/apt/archives /var/lib/apt/lists/*
+COPY --from=builder /app/sanitarr /usr/local/bin
 COPY entrypoint.sh .
-RUN chmod +x entrypoint.sh
 
 ENTRYPOINT ["./entrypoint.sh"]

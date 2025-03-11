@@ -4,6 +4,6 @@
 INTERVAL=${INTERVAL:-1h}
 
 while true; do
-  /app/sanitarr ${@}
+  sanitarr ${@}
   sleep $INTERVAL
 done
