@@ -16,7 +16,7 @@ async fn main() -> anyhow::Result<()> {
     let args = Cli::parse();
     setup_logging(&args.log_level)?;
 
-    let config = config::Config::load("config.toml").await?;
+    let config = config::Config::load(&args.config).await?;
 
     let jellyfin_client = JellyfinClient::new(&config.jellyfin)?;
     let download_client = DownloadService::new(config.download_clients).await?;

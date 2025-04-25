@@ -1,5 +1,6 @@
+use anyhow::bail;
 use serde::Deserialize;
-use std::time::Duration;
+use std::{path::Path, time::Duration};
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -64,8 +65,10 @@ pub struct DelugeConfig {
 }
 
 impl Config {
-    pub async fn load(path: &str) -> anyhow::Result<Self> {
-        let config_str = tokio::fs::read_to_string(path).await?;
+    pub async fn load(path: &Path) -> anyhow::Result<Self> {
+        let Ok(config_str) = tokio::fs::read_to_string(path).await else {
+            bail!("failed to read config file at {path:?}");
+        };
         let config: Config = toml::from_str(&config_str)?;
         Ok(config)
     }
@@ -73,12 +76,14 @@ impl Config {
 
 #[cfg(test)]
 mod test {
+    use std::path::PathBuf;
+
     use super::*;
     use anyhow::Context;
 
     #[tokio::test]
     async fn test_parse_config() -> anyhow::Result<()> {
-        let cfg = Config::load("example.config.toml").await?;
+        let cfg = Config::load(&PathBuf::from("example.config.toml")).await?;
         assert_eq!(cfg.username, "foo");
 
         assert_eq!(cfg.jellyfin.api_key, "api-key-foo");
