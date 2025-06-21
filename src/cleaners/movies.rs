@@ -16,6 +16,7 @@ pub struct MoviesCleaner {
     download_client: DownloadService,
     tags_to_keep: Vec<String>,
     retention_period: Option<Duration>,
+    unmonitor: bool,
 }
 
 /// MoviesCleaner is responsible for cleaning up watched movies from Radarr and
@@ -31,6 +32,7 @@ impl MoviesCleaner {
             api_key,
             tags_to_keep,
             retention_period,
+            unmonitor,
         } = radarr_config;
         let radarr_client = RadarrClient::new(&base_url, &api_key)?;
 
@@ -40,11 +42,19 @@ impl MoviesCleaner {
             download_client,
             tags_to_keep,
             retention_period,
+            unmonitor,
         })
     }
 
     pub async fn cleanup(&self, user_name: &str, force_delete: bool) -> anyhow::Result<()> {
         let user = self.jellyfin.user(user_name).await?;
+
+        // Handle unmonitor functionality separately
+        if self.unmonitor {
+            self.handle_unmonitor(&user.id, force_delete).await?;
+        }
+
+        // Original deletion logic with retention period and tags
         let items = self.watched_items(&user.id).await?;
         if items.is_empty() {
             log::info!("no movies found for deletion in Jellyfin!");
@@ -76,6 +86,44 @@ impl MoviesCleaner {
         Ok(())
     }
 
+    /// Handle unmonitoring watched movies
+    async fn handle_unmonitor(&self, user_id: &UserId, force_delete: bool) -> anyhow::Result<()> {
+        let watched_items = self.all_watched_items(user_id).await?;
+        if watched_items.is_empty() {
+            return Ok(());
+        }
+
+        let movies = self.movies_for_unmonitoring(&watched_items).await?;
+        if movies.is_empty() {
+            return Ok(());
+        }
+
+        let movie_ids = movies.iter().map(|m| m.id).collect();
+        if force_delete {
+            debug!("trying to unmonitor items in Radarr: {movies:?}");
+            self.radarr_client.unmonitor_movies(&movie_ids).await?;
+            info!("successfully unmonitored items in Radarr: {movies:?}");
+        } else {
+            info!("dry run mode - movies that would be unmonitored: {movies:?}");
+        }
+
+        Ok(())
+    }
+
+    /// Get all watched items without retention period filtering (for unmonitor)
+    async fn all_watched_items(&self, user_id: &UserId) -> anyhow::Result<Vec<Item>> {
+        let items = self
+            .jellyfin
+            .items(
+                ItemsFilter::watched()
+                    .user_id(user_id.as_ref())
+                    .include_item_types(&["Movie", "Video"]),
+            )
+            .await?;
+        Ok(items)
+    }
+
+    /// Get watched items with retention period filtering (for deletion)
     async fn watched_items(&self, user_id: &UserId) -> anyhow::Result<Vec<Item>> {
         let items = self
             .jellyfin
@@ -122,6 +170,24 @@ impl MoviesCleaner {
             .map(|id| self.radarr_client.delete_movie(*id));
         let _ = futures::future::try_join_all(delete_futs).await?;
         Ok(())
+    }
+
+    /// finds Radarr's movie IDs for unmonitoring (ignores tags and retention)
+    /// Only returns movies that are currently monitored
+    async fn movies_for_unmonitoring(&self, items: &[Item]) -> Result<Vec<Movie>, anyhow::Error> {
+        let tmdb_ids: Vec<_> = items.iter().filter_map(Item::tmdb_id).collect();
+        let movies_futs = tmdb_ids
+            .iter()
+            .map(|id| self.radarr_client.movies_by_tmdb_id(id));
+
+        // get flattened list of movies and filter only monitored ones
+        let movies = futures::future::try_join_all(movies_futs)
+            .await?
+            .into_iter()
+            .flat_map(Vec::into_iter)
+            .filter(|movie| movie.monitored.unwrap_or(true)) // Only include monitored movies (default to true if field is missing)
+            .collect();
+        Ok(movies)
     }
 
     /// finds Radarr's movie IDs for a given set of items and returns the ones
@@ -220,6 +286,7 @@ mod tests {
             title: "movie".to_string(),
             tags: Some(vec![1, 2, 3]),
             id: 1,
+            monitored: None,
         };
         assert!(safe_to_delete(&movie, &[]));
     }
@@ -230,6 +297,7 @@ mod tests {
             title: "movie".to_string(),
             tags: Some(vec![5]),
             id: 1,
+            monitored: None,
         };
         assert!(!safe_to_delete(&movie, &[4, 5, 6]));
     }
