@@ -49,12 +49,10 @@ impl MoviesCleaner {
     pub async fn cleanup(&self, user_name: &str, force_delete: bool) -> anyhow::Result<()> {
         let user = self.jellyfin.user(user_name).await?;
 
-        // Handle unmonitor functionality separately
         if self.unmonitor {
             self.handle_unmonitor(&user.id, force_delete).await?;
         }
 
-        // Original deletion logic with retention period and tags
         let items = self.watched_items(&user.id).await?;
         if items.is_empty() {
             log::info!("no movies found for deletion in Jellyfin!");
@@ -185,7 +183,7 @@ impl MoviesCleaner {
             .await?
             .into_iter()
             .flat_map(Vec::into_iter)
-            .filter(|movie| movie.monitored.unwrap_or(true)) // Only include monitored movies (default to true if field is missing)
+            .filter(|movie| movie.monitored.unwrap_or(true))
             .collect();
         Ok(movies)
     }
