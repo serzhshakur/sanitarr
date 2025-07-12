@@ -308,12 +308,6 @@ impl SeriesCleaner {
                 .played();
 
             let watched_episodes = self.jellyfin.items(watched_episodes_filter).await?;
-            // debug!(
-            //     "found watched episodes to unmonitor: {}, in series {}, tvdb_id: {}",
-            //     watched_episodes.len(),
-            //     series_item.name,
-            //     series_item.tvdb_id().unwrap_or("0")
-            // );
 
             if watched_episodes.is_empty() {
                 continue;
