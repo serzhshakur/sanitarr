@@ -43,7 +43,7 @@ retention_period = "1w"
 
 # You can configure multiple download clients running in your system.
 # Currently only 'qBittorrent' and 'Deluge' are supported.
-# Which client to delete a specific torrent from will be decided 
+# Which client to delete a specific torrent from will be decided
 # automatically based on the API response from either Sonarr or Radarr.
 # See "History" API reference for more details
 # - https://sonarr.tv/docs/api/#/History/get_api_v3_history
@@ -113,7 +113,7 @@ services:
       INTERVAL: 45m
     volumes:
       - /path/to/sanitarr-config.toml:/app/config.toml
-    command: 
+    command:
       - "--config"
       - "/app/config.toml"
       - "--force-delete"
@@ -138,17 +138,16 @@ Usage: sanitarr [OPTIONS] --config <CONFIG>
 
 Options:
   -d, --force-delete           Perform actual deletion of files. If not set the program will operate in a "dry run" mode
-  -l, --log-level <LOG_LEVEL>  Set the log level [default: info]
+  -l, --log-level <LOG_LEVEL>  You can either provide a single log level (like `info`) or use a more detailed syntax like `off,sanitarr=debug,reqwest=info` (similar to `tracing_subscriber::filter::EnvFilter` syntax) [env: LOG_LEVEL=]
   -c, --config <CONFIG>        Path to the config file
   -h, --help                   Print help
   -V, --version                Print version
-
 ```
 
 You can also specify the log level using the `LOG_LEVEL` environment variable:
 
 ```sh
-LOG_LEVEL=debug sanitarr
+LOG_LEVEL="off,sanitarr=debug" sanitarr
 ```
 
 ## Contributing

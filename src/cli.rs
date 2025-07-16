@@ -1,3 +1,4 @@
+use crate::logging::LoggingSettings;
 use clap::Parser;
 use std::path::PathBuf;
 
@@ -12,9 +13,11 @@ pub struct Cli {
     /// a "dry run" mode
     #[clap(short = 'd', long)]
     pub force_delete: bool,
-    /// Set the log level
-    #[clap(short, long, default_value = "info", env = "LOG_LEVEL")]
-    pub log_level: log::LevelFilter,
+    /// You can either provide a single log level (like `info`) or use a more
+    /// detailed syntax like `off,sanitarr=debug,reqwest=info` (similar to
+    /// `tracing_subscriber::filter::EnvFilter` syntax)
+    #[clap(short, long, env = "LOG_LEVEL")]
+    pub log_level: LoggingSettings,
     /// Path to the config file
     #[clap(short, long)]
     pub config: PathBuf,
