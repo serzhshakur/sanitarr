@@ -23,7 +23,11 @@ pub fn retention_str(last_played_dt: &DateTime<Utc>, retention_dt: &DateTime<Utc
 }
 
 fn suffix(units: i64) -> String {
-    (units > 1).then_some("s").unwrap_or_default().to_string()
+    if units > 1 {
+        String::from("s")
+    } else {
+        Default::default()
+    }
 }
 
 #[cfg(test)]
