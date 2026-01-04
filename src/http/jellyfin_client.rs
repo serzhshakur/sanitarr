@@ -69,7 +69,7 @@ impl JellyfinClient {
             .await?
             .into_iter()
             .find(|user| user.name == user_name)
-            .ok_or_else(|| anyhow::anyhow!("User {} not found", user_name))
+            .ok_or_else(|| anyhow::anyhow!("User {user_name} not found"))
     }
 }
 
@@ -231,11 +231,11 @@ fn to_comma_separated<'a, S>(
 where
     S: serde::Serializer,
 {
-    if let Some(values) = values {
-        if !values.is_empty() {
-            let values = values.join(",");
-            return serializer.serialize_some(&values);
-        }
+    if let Some(values) = values
+        && !values.is_empty()
+    {
+        let values = values.join(",");
+        return serializer.serialize_some(&values);
     }
     serializer.serialize_none()
 }

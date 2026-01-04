@@ -65,7 +65,10 @@ impl TorrentClient for DelugeClient {
     /// List all torrents in the client by their hashes.
     async fn list_torrents(&self, hashes: &HashSet<String>) -> anyhow::Result<Vec<String>> {
         let request = DelugeRequest::ListTorrents(hashes);
-        let response = self.post::<HashMap<String, Torrent>>(request).await?;
+        let response = self
+            .post::<HashMap<String, Torrent>>(request)
+            .await
+            .map_err(|e| anyhow::anyhow!("unable to list torrents: {e}"))?;
 
         let Some(result) = response else {
             return Ok(Vec::default());
@@ -77,8 +80,9 @@ impl TorrentClient for DelugeClient {
     /// Delete torrents by provided hashes and also delete the associated files.
     async fn delete_torrents(&self, hashes: &HashSet<String>) -> anyhow::Result<()> {
         let request = DelugeRequest::DeleteTorrents(hashes);
-        self.post::<Vec<bool>>(request).await?;
-
+        self.post::<Vec<bool>>(request)
+            .await
+            .map_err(|e| anyhow::anyhow!("unable to delete torrents: {e}"))?;
         Ok(())
     }
 }
