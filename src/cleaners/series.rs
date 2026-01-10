@@ -1,7 +1,9 @@
 use crate::{
     cleaners::utils,
     config::SonarrConfig,
-    http::{Item, ItemsFilter, JellyfinClient, SeriesInfo, SonarrClient, TorrentClientKind},
+    http::{
+        Item, ItemsFilter, JellyfinClient, SeriesInfo, SonarrClient, TorrentClientKind, UserId,
+    },
     services::DownloadService,
 };
 use log::{debug, info, warn};
@@ -18,6 +20,7 @@ pub struct SeriesCleaner {
     download_client: DownloadService,
     tags_to_keep: Vec<String>,
     retention_period: Option<Duration>,
+    unmonitor: bool,
 }
 
 impl SeriesCleaner {
@@ -31,6 +34,7 @@ impl SeriesCleaner {
             api_key,
             tags_to_keep,
             retention_period,
+            unmonitor,
         } = sonarr_config;
 
         let sonarr_client = SonarrClient::new(&base_url, &api_key)?;
@@ -40,11 +44,20 @@ impl SeriesCleaner {
             download_client,
             tags_to_keep,
             retention_period,
+            unmonitor,
         })
     }
 
     /// cleanup fully watched series from Sonarr and Download client
     pub async fn cleanup(&self, user_name: &str, force_delete: bool) -> anyhow::Result<()> {
+        let user = self.jellyfin.user(user_name).await?;
+
+        // Handle unmonitor functionality separately
+        if self.unmonitor {
+            self.handle_unmonitor(&user.id, force_delete).await?;
+        }
+
+        // Original deletion logic with retention period and tags
         let items = self.watched_items(user_name).await?;
 
         if items.is_empty() {
@@ -203,6 +216,137 @@ impl SeriesCleaner {
             .flat_map(|i| i.into_iter())
             .collect::<Vec<SeriesInfo>>();
         Ok(series)
+    }
+
+    /// Handle unmonitoring watched episodes in series
+    async fn handle_unmonitor(&self, user_id: &UserId, force_delete: bool) -> anyhow::Result<()> {
+        let watched_series = self.all_watched_series(user_id).await?;
+        if watched_series.is_empty() {
+            return Ok(());
+        }
+
+        let episodes_to_unmonitor = self
+            .episodes_for_unmonitoring(&watched_series, user_id)
+            .await?;
+        if episodes_to_unmonitor.is_empty() {
+            return Ok(());
+        }
+
+        if force_delete {
+            debug!(
+                "trying to unmonitor {} episodes in Sonarr",
+                episodes_to_unmonitor.len()
+            );
+            self.sonarr_client
+                .unmonitor_episodes(&episodes_to_unmonitor)
+                .await?;
+            info!(
+                "successfully unmonitored {} episodes in Sonarr",
+                episodes_to_unmonitor.len()
+            );
+        } else {
+            info!(
+                "dry run mode - {} episodes would be unmonitored",
+                episodes_to_unmonitor.len()
+            );
+        }
+
+        Ok(())
+    }
+
+    /// Get all series with at least one watched episode (for unmonitor)
+    async fn all_watched_series(&self, user_id: &UserId) -> anyhow::Result<Vec<Item>> {
+        // Get all series (not just fully watched ones)
+        let all_series = self
+            .jellyfin
+            .items(
+                ItemsFilter::new()
+                    .user_id(user_id.as_ref())
+                    .recursive()
+                    .include_item_types(&["Series"])
+                    .fields(&["ProviderIds"]),
+            )
+            .await?;
+
+        let mut series_with_watched_episodes = Vec::new();
+
+        // Check each series for watched episodes
+        for series in all_series {
+            let watched_episodes_filter = ItemsFilter::new()
+                .user_id(user_id.as_ref())
+                .recursive()
+                .parent_id(&series.id)
+                .include_item_types(&["Episode"])
+                .played();
+
+            let watched_episodes = self.jellyfin.items(watched_episodes_filter).await?;
+
+            // If the series has at least one watched episode, include it
+            if !watched_episodes.is_empty() {
+                series_with_watched_episodes.push(series);
+            }
+        }
+
+        Ok(series_with_watched_episodes)
+    }
+
+    /// Get episodes that should be unmonitored (watched episodes in watched series)
+    async fn episodes_for_unmonitoring(
+        &self,
+        watched_series: &[Item],
+        user_id: &UserId,
+    ) -> anyhow::Result<HashSet<u64>> {
+        let mut episodes_to_unmonitor = HashSet::new();
+
+        for series_item in watched_series {
+            // Get only watched episodes using the played filter directly from Jellyfin
+            let watched_episodes_filter = ItemsFilter::new()
+                .user_id(user_id.as_ref())
+                .recursive()
+                .parent_id(&series_item.id)
+                .include_item_types(&["Episode"])
+                .played();
+
+            let watched_episodes = self.jellyfin.items(watched_episodes_filter).await?;
+
+            if watched_episodes.is_empty() {
+                continue;
+            }
+
+            // Get series from Sonarr by TVDB ID
+            if let Some(tvdb_id) = series_item.tvdb_id() {
+                let sonarr_series = self.sonarr_client.series_by_tvdb_id(tvdb_id).await?;
+
+                for series in sonarr_series {
+                    // Get all episodes for this series from Sonarr
+                    let sonarr_episodes =
+                        self.sonarr_client.episodes_by_series_id(series.id).await?;
+
+                    // Match watched Jellyfin episodes with Sonarr episodes and collect IDs
+                    for watched_episode in &watched_episodes {
+                        if let (Some(season_num), Some(episode_num)) = (
+                            watched_episode.parent_index_number,
+                            watched_episode.index_number,
+                        ) {
+                            // Find matching episode in Sonarr that is currently monitored
+                            if let Some(sonarr_episode) = sonarr_episodes.iter().find(|ep| {
+                                ep.season_number == season_num as u32
+                                    && ep.episode_number == episode_num as u32
+                                    && ep.monitored.unwrap_or(true) // Only include monitored episodes
+                            }) {
+                                episodes_to_unmonitor.insert(sonarr_episode.id);
+                                debug!(
+                                    "found watched episode to unmonitor: {} S{}E{} (ID: {})",
+                                    series_item.name, season_num, episode_num, sonarr_episode.id
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(episodes_to_unmonitor)
     }
 
     /// delete series with given ids
