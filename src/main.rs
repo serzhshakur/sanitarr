@@ -1,5 +1,5 @@
 use clap::Parser;
-use cleaners::{MoviesCleaner, SeriesCleaner};
+use cleaners::{EpisodesCleaner, MoviesCleaner};
 use cli::Cli;
 use http::JellyfinClient;
 use services::DownloadService;
@@ -27,7 +27,7 @@ async fn main() -> anyhow::Result<()> {
         download_client.clone(),
     )?;
 
-    let series_cleaner = SeriesCleaner::new(
+    let episodes_cleaner = EpisodesCleaner::new(
         config.sonarr,
         jellyfin_client.clone(),
         download_client.clone(),
@@ -36,7 +36,7 @@ async fn main() -> anyhow::Result<()> {
     movies_cleaner
         .cleanup(&config.username, args.force_delete)
         .await?;
-    series_cleaner
+    episodes_cleaner
         .cleanup(&config.username, args.force_delete)
         .await?;
 
