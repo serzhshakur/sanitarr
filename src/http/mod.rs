@@ -8,7 +8,7 @@ use log::trace;
 pub use radarr_client::{Movie, RadarrClient};
 #[cfg(test)]
 pub use sonarr_client::{Season, SeasonStatistics, SeriesStatistics};
-pub use sonarr_client::{SeriesInfo, SonarrClient};
+pub use sonarr_client::{EpisodeInfo, SeriesInfo, SonarrClient};
 pub use torrent_clients::{DelugeClient, QbittorrentClient, TorrentClient, TorrentClientKind};
 
 use anyhow::bail;
