@@ -2,19 +2,22 @@
 name = "sanitarr"
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.88"
+rust-version = "1.92"
+authors = ["serzhshakur"]
+description = "A tool to keep your media server library clean."
+license = "MIT"
 
 [dependencies]
-anyhow = "1.0.98"
-async-trait = "0.1.88"
-chrono = { version = "0.4.41", features = ["serde"] }
+anyhow = "1.0.100"
+async-trait = "0.1.89"
+chrono = { version = "0.4", features = ["serde"] }
 clap = { version = "4.5", features = ["derive", "env"] }
 fern = "0.7.1"
 futures = "0.3"
 humantime-serde = "1.1.1"
 log = "0.4"
-reqwest = { version = "0.12.12", features = ["json", "cookies"] }
+reqwest = { version = "0.13", features = ["cookies", "form", "json", "query"] }
 serde = { version = "1.0.218", features = ["derive"] }
-serde_json = "1.0.139"
-tokio = { version = "1.46", features = ["rt-multi-thread", "net", "sync", "macros", "time", "fs"] }
+serde_json = "1.0.149"
+tokio = { version = "1.49", features = ["rt-multi-thread", "net", "sync", "macros", "time", "fs"] }
 toml = "0.9"
