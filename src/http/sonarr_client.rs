@@ -8,7 +8,7 @@ use std::collections::HashSet;
 use std::fmt::Debug;
 
 /// A client for interacting with Sonarr API.
-/// https://sonarr.tv/docs/api/
+/// https://sonarr.tv/docs/api/#v3
 pub struct SonarrClient {
     client: Client,
     base_url: Url,
@@ -28,7 +28,7 @@ impl SonarrClient {
     }
 
     /// Get the series IDs for a given TVDB ID.
-    /// https://sonarr.tv/docs/api/#/Series/get_api_v3_series
+    /// https://sonarr.tv/docs/api/#v3/tag/series/GET/api/v3/series
     pub async fn series_by_tvdb_id(&self, provider_id: &str) -> anyhow::Result<Vec<SeriesInfo>> {
         let url = self.base_url.join("series")?;
         let response = self
@@ -45,7 +45,7 @@ impl SonarrClient {
     }
 
     /// Get the history records for a list of series IDs.
-    /// https://sonarr.tv/docs/api/#/History/get_api_v3_history
+    /// https://sonarr.tv/docs/api/#v3/tag/history/GET/api/v3/history
     pub async fn history_records(
         &self,
         movie_ids: &HashSet<u64>,
@@ -84,7 +84,7 @@ impl SonarrClient {
     }
 
     /// Delete series by its ID and all associated files.
-    /// https://sonarr.tv/docs/api/#/Series/delete_api_v3_series__id_
+    /// https://sonarr.tv/docs/api/#v3/tag/series/DELETE/api/v3/series/{id}
     pub async fn delete_series(&self, series_id: u64) -> anyhow::Result<()> {
         let url = self
             .base_url

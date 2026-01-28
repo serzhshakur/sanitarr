@@ -1,15 +1,14 @@
 # Sanitarr
 
 Sanitarr is a tool designed to clean up your media library by integrating with
-the **\*arr** stack: Radarr, Sonarr, Jellyfin, and multiple download clients of
+the **\*arr** stack (Radarr, Sonarr), Jellyfin and multiple download clients of
 your choice (currently only qBittorrent and Deluge are supported). It helps you
 manage and maintain your media collection by removing fully watched items,
 thereby reducing the size of your collection on the disk.
 
 ## Features
 
-- Integrates with Servarr stack (Radarr, Sonarr, Jellyfin) and a number of
-  torrent clients;
+- Integrates with \*arr stack, Jellyfin and a number of torrent clients;
 - Supports multiple concurrently running torrent clients;
 - Cleans up movies and series based on your configuration;
 - Supports custom tags to keep specific files;
@@ -46,7 +45,7 @@ retention_period = "1w"
 # Which client to delete a specific torrent from will be decided
 # automatically based on the API response from either Sonarr or Radarr.
 # See "History" API reference for more details
-# - https://sonarr.tv/docs/api/#/History/get_api_v3_history
+# - https://sonarr.tv/docs/api/#v3/tag/history/GET/api/v3/history
 # - https://radarr.video/docs/api/#/History/get_api_v3_history
 
 [download_clients.qbittorrent]
@@ -157,7 +156,4 @@ GitHub.
 
 ## License
 
-This project is licensed under the MIT License. See the LICENSE file for
-details.
-
-Similar code found with 3 license types
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
