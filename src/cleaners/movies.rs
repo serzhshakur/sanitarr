@@ -1,7 +1,10 @@
 use crate::{
     cleaners::utils,
     config::RadarrConfig,
-    http::{Item, ItemsFilter, JellyfinClient, Movie, RadarrClient, TorrentClientKind, UserId},
+    http::{
+        ItemsFilter, JellyfinClient, JellyfinItem, Movie, MovieEditor, RadarrClient,
+        TorrentClientKind, UserId,
+    },
     services::DownloadService,
 };
 use log::{debug, info, warn};
@@ -45,30 +48,35 @@ impl MoviesCleaner {
 
     pub async fn cleanup(&self, user_name: &str, force_delete: bool) -> anyhow::Result<()> {
         let user = self.jellyfin.user(user_name).await?;
-        let items = self.watched_items(&user.id).await?;
-        if items.is_empty() {
+        let watched_items = self.watched_jellyfin_items(&user.id).await?;
+        if watched_items.is_empty() {
             log::info!("no movies found for deletion in Jellyfin!");
             return Ok(());
         }
 
-        let movies = self.movies_for_deletion(&items).await?;
+        let watched_movies = self.watched_movies(watched_items).await?;
+        self.unmonitor(&watched_movies).await?;
 
-        if movies.is_empty() {
+        let forbidden_tags = self.forbidden_tags().await?;
+        let movies_for_deletion =
+            watched_movies.filter_for_deletion(self.retention_period, &forbidden_tags)?;
+
+        if movies_for_deletion.is_empty() {
             info!("no movies found for deletion in Radarr!");
             return Ok(());
         }
 
-        let movie_ids = movies.iter().map(|m| m.id).collect();
+        let movie_ids = movies_for_deletion.iter().map(|m| m.id).collect();
         let download_ids = self.download_ids(&movie_ids).await?;
 
         if force_delete {
-            debug!("trying to delete items in Radarr: {movies:?}");
+            debug!("trying to delete items in Radarr: {movies_for_deletion:?}");
             self.delete_movies(&movie_ids).await?;
-            info!("successfully deleted items from Radarr: {movies:?}");
+            info!("successfully deleted items from Radarr: {movies_for_deletion:?}");
             self.download_client.delete(&download_ids).await?;
         } else {
             info!(
-                "no items will be deleted as no `--force-delete` flag is provided. Listing them instead: {movies:?}"
+                "no items will be deleted as no `--force-delete` flag is provided. Listing them instead: {movies_for_deletion:?}"
             );
             self.download_client.list(&download_ids).await?;
         }
@@ -76,43 +84,15 @@ impl MoviesCleaner {
         Ok(())
     }
 
-    async fn watched_items(&self, user_id: &UserId) -> anyhow::Result<Vec<Item>> {
-        let items = self
-            .jellyfin
+    /// queries Jellyfin and returns all watched movies for the given user
+    async fn watched_jellyfin_items(&self, user_id: &UserId) -> anyhow::Result<Vec<JellyfinItem>> {
+        self.jellyfin
             .items(
                 ItemsFilter::watched()
                     .user_id(user_id.as_ref())
                     .include_item_types(&["Movie", "Video"]),
             )
-            .await?;
-
-        let Some(retention_period) = self.retention_period else {
-            if !items.is_empty() {
-                warn!("no retention period is set for Radarr, will delete all movies immediately");
-            }
-            return Ok(items);
-        };
-        let retention_date = chrono::Utc::now() - retention_period;
-        let mut safe_to_delete_items = vec![];
-
-        for item in items {
-            if let Some(last_played) = item
-                .user_data
-                .as_ref()
-                .and_then(|user_data| user_data.last_played_date)
-            {
-                if retention_date > last_played {
-                    safe_to_delete_items.push(item);
-                } else {
-                    debug!(
-                        "retention period for \"{}\" is not yet passed ({} left), skipping",
-                        item.name,
-                        utils::retention_str(&last_played, &retention_date)
-                    );
-                }
-            };
-        }
-        Ok(safe_to_delete_items)
+            .await
     }
 
     /// delete movies with given ids
@@ -124,22 +104,14 @@ impl MoviesCleaner {
         Ok(())
     }
 
-    /// finds Radarr's movie IDs for a given set of items and returns the ones
-    /// that are safe to delete
-    async fn movies_for_deletion(&self, items: &[Item]) -> Result<Vec<Movie>, anyhow::Error> {
-        let tmdb_ids: Vec<_> = items.iter().filter_map(Item::tmdb_id).collect();
-        let forbidden_tags = self.forbidden_tags().await?;
-        let movies_futs = tmdb_ids
-            .iter()
-            .map(|id| self.filter_movies(id, &forbidden_tags));
-
-        // get flattened list of ids
-        let movies = futures::future::try_join_all(movies_futs)
-            .await?
-            .into_iter()
-            .flat_map(Vec::into_iter)
-            .collect();
-        Ok(movies)
+    /// unmonitor watched movies that are still monitored
+    async fn unmonitor(&self, watched: &WatchedMovies) -> anyhow::Result<()> {
+        let ids = watched.monitored_movie_ids();
+        if !ids.is_empty() {
+            let request = MovieEditor::new(ids).monitored(false);
+            self.radarr_client.bulk_edit(&request).await?;
+        }
+        Ok(())
     }
 
     /// queries Radarr history for given movie ids and gets corresponding
@@ -177,22 +149,24 @@ impl MoviesCleaner {
         Ok(forbidden_tags)
     }
 
-    /// gets movies by a given TMDB ID. Filters out movies that are safe to
-    /// delete. A collection of movies is returned as there might be more than
-    /// one file for a given TMDB ID
-    async fn filter_movies(
-        &self,
-        tmdb_id: &str,
-        forbidden_tags: &[u64],
-    ) -> anyhow::Result<Vec<Movie>> {
-        let movies = self
-            .radarr_client
-            .movies_by_tmdb_id(tmdb_id)
-            .await?
-            .into_iter()
-            .filter(|movie| safe_to_delete(movie, forbidden_tags))
-            .collect();
-        Ok(movies)
+    /// query movies per given Jellyfin items and return a [`WatchedMovies`]
+    /// object
+    async fn watched_movies(&self, items: Vec<JellyfinItem>) -> anyhow::Result<WatchedMovies> {
+        let movies_futs = items.into_iter().map(|jellyfin_item| async move {
+            let Some(tmdb_id) = jellyfin_item.tmdb_id() else {
+                return Ok(None);
+            };
+            let movies = self.radarr_client.movies_by_tmdb_id(tmdb_id).await?;
+            let watched = WatchedMovie {
+                jellyfin_item,
+                movies,
+            };
+            Ok::<_, anyhow::Error>(Some(watched))
+        });
+
+        let results = futures::future::try_join_all(movies_futs).await?;
+        let movie_items = results.into_iter().flatten().collect();
+        Ok(WatchedMovies(movie_items))
     }
 }
 
@@ -210,6 +184,70 @@ fn safe_to_delete(movie: &Movie, forbidden_tags: &[u64]) -> bool {
     true
 }
 
+struct WatchedMovie {
+    jellyfin_item: JellyfinItem,
+    movies: Vec<Movie>,
+}
+
+struct WatchedMovies(Vec<WatchedMovie>);
+
+impl WatchedMovies {
+    fn movies(&self) -> Vec<&Movie> {
+        self.0.iter().flat_map(|wm| wm.movies.iter()).collect()
+    }
+
+    fn monitored_movie_ids(&self) -> HashSet<u64> {
+        self.0
+            .iter()
+            .flat_map(|wm| wm.movies.iter())
+            .filter_map(|m| m.monitored.then_some(m.id))
+            .collect()
+    }
+
+    fn filter_for_deletion(
+        &self,
+        retention_period: Option<Duration>,
+        forbidden_tags: &[u64],
+    ) -> anyhow::Result<Vec<&Movie>> {
+        let movies = match retention_period {
+            Some(retention_period) => {
+                let retention_date = chrono::Utc::now() - retention_period;
+                let mut safe_to_delete_items = vec![];
+
+                for item in &self.0 {
+                    if let Some(last_played) = item.jellyfin_item.last_played_date() {
+                        if retention_date > last_played {
+                            safe_to_delete_items.extend(&item.movies);
+                        } else {
+                            debug!(
+                                "retention period for \"{}\" is not yet passed ({} left), skipping",
+                                item.jellyfin_item.name,
+                                utils::retention_str(&last_played, &retention_date)
+                            );
+                        }
+                    };
+                }
+                safe_to_delete_items
+            }
+            None => {
+                if !self.0.is_empty() {
+                    warn!(
+                        "no retention period is set for Radarr, will delete all movies immediately"
+                    );
+                }
+                self.movies()
+            }
+        };
+
+        let movies = movies
+            .into_iter()
+            .filter(|movie| safe_to_delete(movie, forbidden_tags))
+            .collect();
+
+        Ok(movies)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -217,9 +255,10 @@ mod tests {
     #[test]
     fn test_movie_safe_to_delete() {
         let movie = Movie {
-            title: "movie".to_string(),
-            tags: Some(vec![1, 2, 3]),
             id: 1,
+            monitored: false,
+            tags: Some(vec![1, 2, 3]),
+            title: "movie".to_string(),
         };
         assert!(safe_to_delete(&movie, &[]));
     }
@@ -227,9 +266,10 @@ mod tests {
     #[test]
     fn test_movie_not_safe_to_delete_forbidden_tags() {
         let movie = Movie {
-            title: "movie".to_string(),
-            tags: Some(vec![5]),
             id: 1,
+            monitored: false,
+            tags: Some(vec![5]),
+            title: "movie".to_string(),
         };
         assert!(!safe_to_delete(&movie, &[4, 5, 6]));
     }

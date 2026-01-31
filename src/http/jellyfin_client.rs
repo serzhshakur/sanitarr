@@ -29,7 +29,7 @@ impl JellyfinClient {
 
     /// Get all items that match the given query filter
     /// https://api.jellyfin.org/#tag/Items
-    pub async fn items(&self, items_filter: ItemsFilter<'_>) -> anyhow::Result<Vec<Item>> {
+    pub async fn items(&self, items_filter: ItemsFilter<'_>) -> anyhow::Result<Vec<JellyfinItem>> {
         let url = self.base_url.join("Items")?;
 
         // pagination
@@ -105,27 +105,31 @@ fn auth_headers(api_key: &str) -> Result<HeaderMap, anyhow::Error> {
 #[derive(Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct ItemsResponse {
-    pub items: Vec<Item>,
+    pub items: Vec<JellyfinItem>,
     total_record_count: usize,
 }
 
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "PascalCase")]
 #[cfg_attr(test, derive(Default))]
-pub struct Item {
+pub struct JellyfinItem {
     pub name: String,
     pub id: String,
     pub provider_ids: Option<ProviderIds>,
     pub user_data: Option<ItemUserData>,
 }
 
-impl Item {
+impl JellyfinItem {
     pub fn tmdb_id(&self) -> Option<&str> {
         self.provider_ids.as_ref()?.tmdb.as_deref()
     }
 
     pub fn tvdb_id(&self) -> Option<&str> {
         self.provider_ids.as_ref()?.tvdb.as_deref()
+    }
+
+    pub fn last_played_date(&self) -> Option<DateTime<Utc>> {
+        self.user_data.as_ref()?.last_played_date
     }
 }
 

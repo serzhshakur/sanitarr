@@ -1,7 +1,9 @@
 use crate::{
     cleaners::utils,
     config::SonarrConfig,
-    http::{Item, ItemsFilter, JellyfinClient, SeriesInfo, SonarrClient, TorrentClientKind},
+    http::{
+        ItemsFilter, JellyfinClient, JellyfinItem, SeriesInfo, SonarrClient, TorrentClientKind,
+    },
     services::DownloadService,
 };
 use log::{debug, info, warn};
@@ -78,10 +80,10 @@ impl SeriesCleaner {
         Ok(())
     }
 
-    async fn watched_items(&self, user_name: &str) -> anyhow::Result<Vec<Item>> {
+    async fn watched_items(&self, user_name: &str) -> anyhow::Result<Vec<JellyfinItem>> {
         let user_id = self.jellyfin.user(user_name).await?.id;
 
-        let items = self
+        let series = self
             .jellyfin
             .items(
                 ItemsFilter::watched()
@@ -91,42 +93,36 @@ impl SeriesCleaner {
             .await?;
 
         let Some(retention_period) = self.retention_period else {
-            if !items.is_empty() {
+            if !series.is_empty() {
                 warn!("no retention period is set for Sonarr, will delete all series immediately");
             }
-            return Ok(items);
+            return Ok(series);
         };
         let retention_date = chrono::Utc::now() - retention_period;
         let mut safe_to_delete_items = vec![];
 
-        for item in items {
-            // Items of type "Episode" despite being watched sometime are not
-            // being marked as played, so we need to build a separate filter for
-            // them
+        for series_item in series {
+            // Items of type "Episode" despite being watched sometimes are not
+            // marked as played, so we need to build a separate filter for them
             let filter = ItemsFilter::new()
                 .user_id(user_id.as_ref())
                 .recursive()
-                .parent_id(&item.id)
+                .parent_id(&series_item.id)
                 .include_item_types(&["Episode"]);
 
             let episodes = self.jellyfin.items(filter).await?;
             let max_last_played = episodes
                 .iter()
-                .filter_map(|episode| {
-                    episode
-                        .user_data
-                        .as_ref()
-                        .and_then(|user_data| user_data.last_played_date)
-                })
+                .filter_map(JellyfinItem::last_played_date)
                 .max();
 
             if let Some(last_played) = max_last_played {
                 if retention_date > last_played {
-                    safe_to_delete_items.push(item);
+                    safe_to_delete_items.push(series_item);
                 } else {
                     debug!(
                         "retention period for one or more episodes of \"{}\" is not yet passed ({} left), skipping",
-                        item.name,
+                        series_item.name,
                         utils::retention_str(&last_played, &retention_date)
                     );
                 }
@@ -186,11 +182,11 @@ impl SeriesCleaner {
     }
 
     /// get all series ids for a given list of items that are safe to delete
-    async fn series_for_deletion(&self, items: &[Item]) -> anyhow::Result<Vec<SeriesInfo>> {
+    async fn series_for_deletion(&self, items: &[JellyfinItem]) -> anyhow::Result<Vec<SeriesInfo>> {
         if items.is_empty() {
             return Ok(Default::default());
         }
-        let tvdb_ids: Vec<&str> = items.iter().filter_map(Item::tvdb_id).collect();
+        let tvdb_ids: Vec<&str> = items.iter().filter_map(JellyfinItem::tvdb_id).collect();
         let forbidden_tags = self.forbidden_tags().await?;
 
         let futs = tvdb_ids
