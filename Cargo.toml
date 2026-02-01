@@ -1,10 +1,11 @@
 [package]
 name = "sanitarr"
 version = "0.1.0"
+description = "A tool to keep your media server library clean."
+repository = "https://github.com/serzhshakur/sanitarr"
 edition = "2024"
 rust-version = "1.92"
 authors = ["serzhshakur"]
-description = "A tool to keep your media server library clean."
 license = "MIT"
 
 [dependencies]
@@ -16,7 +17,7 @@ fern = "0.7.1"
 futures = "0.3"
 humantime-serde = "1.1.1"
 log = "0.4"
-reqwest = { version = "0.13", features = ["cookies", "form", "json", "query"] }
+reqwest = { version = "0.13", default-features = false, features = ["cookies", "form", "json", "query"] }
 serde = { version = "1.0.218", features = ["derive"] }
 serde_json = "1.0.149"
 tokio = { version = "1.49", features = ["rt-multi-thread", "net", "sync", "macros", "time", "fs"] }
