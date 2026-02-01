@@ -24,4 +24,3 @@ password = "adminadmin"
 [download_clients.deluge]
 base_url = "http://localhost:8112"
 password = "qwerty"
-`
