@@ -31,18 +31,38 @@ impl JellyfinClient {
     /// https://api.jellyfin.org/#tag/Items
     pub async fn items(&self, items_filter: ItemsFilter<'_>) -> anyhow::Result<Vec<Item>> {
         let url = self.base_url.join("Items")?;
-        let response = self
-            .client
-            .get(url)
-            .query(&items_filter)
-            .send()
-            .await?
-            .handle_error()
-            .await?
-            .json::<ItemsResponse>()
-            .await?;
 
-        Ok(response.items)
+        // pagination
+        let mut items = Vec::new();
+        let mut start_index: usize = 0;
+        let limit = 100;
+
+        loop {
+            let response = self
+                .client
+                .get(url.clone())
+                .query(&items_filter)
+                .query(&[("startIndex", start_index), ("limit", limit)])
+                .send()
+                .await?
+                .handle_error()
+                .await?
+                .json::<ItemsResponse>()
+                .await?;
+
+            if response.items.is_empty() {
+                break;
+            }
+
+            items.extend(response.items);
+
+            if items.len() >= response.total_record_count {
+                break;
+            }
+            start_index = items.len();
+        }
+
+        Ok(items)
     }
 
     /// Get all users.
@@ -86,6 +106,7 @@ fn auth_headers(api_key: &str) -> Result<HeaderMap, anyhow::Error> {
 #[serde(rename_all = "PascalCase")]
 pub struct ItemsResponse {
     pub items: Vec<Item>,
+    total_record_count: usize,
 }
 
 #[derive(Deserialize, Debug)]
