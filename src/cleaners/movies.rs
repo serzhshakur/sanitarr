@@ -107,9 +107,17 @@ impl MoviesCleaner {
     /// unmonitor watched movies that are still monitored
     async fn unmonitor(&self, watched: &WatchedMovies) -> anyhow::Result<()> {
         let ids = watched.monitored_movie_ids();
-        if !ids.is_empty() {
+        if ids.is_empty() {
+            debug!("no monitored movies found for unmonitoring");
+        } else {
             let request = MovieEditor::new(ids).monitored(false);
-            self.radarr_client.bulk_edit(&request).await?;
+            let response = self.radarr_client.bulk_edit(&request).await?;
+            let log_msg = response
+                .iter()
+                .map(|m| format!("  - {m}"))
+                .collect::<Vec<_>>()
+                .join("\n");
+            info!("unmonitored movies in Radarr: \n{log_msg}");
         }
         Ok(())
     }
@@ -135,7 +143,7 @@ impl MoviesCleaner {
 
     /// gets IDs of the tags that are configured to be kept
     async fn forbidden_tags(&self) -> anyhow::Result<Vec<u64>> {
-        debug!("forbidden movies tags configured: {:?}", self.tags_to_keep);
+        debug!("forbidden movie tags configured: {:?}", self.tags_to_keep);
 
         let tags = self.radarr_client.tags().await?;
         let forbidden_tags = tags

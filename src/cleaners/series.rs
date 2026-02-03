@@ -48,35 +48,40 @@ impl SeriesCleaner {
 
     /// cleanup fully watched series from Sonarr and Download client
     pub async fn cleanup(&self, user_name: &str, force_delete: bool) -> anyhow::Result<()> {
-        let watched = self.query_watched(user_name).await?;
+        let series_with_watched_eps = self.shows_with_watched_episodes(user_name).await?;
 
-        if watched.inner().is_empty() {
+        if series_with_watched_eps.is_empty() {
             log::info!("no fully watched series found!");
             return Ok(());
         }
 
-        self.unmonitor(&watched).await?;
+        self.unmonitor_watched_episodes(&series_with_watched_eps)
+            .await?;
 
         let forbidden_tags = self.forbidden_tags().await?;
-        let series = watched.filter_for_deletion(self.retention_period, &forbidden_tags)?;
+        let series_to_delete =
+            series_with_watched_eps.series_for_deletion(self.retention_period, &forbidden_tags)?;
 
-        if series.is_empty() {
+        if series_to_delete.is_empty() {
             info!("no series found for deletion!");
             return Ok(());
         }
 
-        let series_ids = series.iter().map(|s| s.id).collect::<HashSet<u64>>();
+        let series_ids = series_to_delete
+            .iter()
+            .map(|s| s.id)
+            .collect::<HashSet<u64>>();
         let download_ids = self.download_ids(&series_ids).await?;
 
         if force_delete {
-            debug!("trying to delete series {series:?}");
+            debug!("trying to delete series {series_to_delete:?}");
             self.delete_series(&series_ids).await?;
-            info!("successfully deleted series: {series:?}");
+            info!("successfully deleted series: {series_to_delete:?}");
 
             self.download_client.delete(&download_ids).await?;
         } else {
             info!(
-                "no items will be deleted as no `--force-delete` flag is provided. Listing them instead: {series:?}"
+                "no items will be deleted as no `--force-delete` flag is provided. Listing them instead: {series_to_delete:?}"
             );
             self.download_client.list(&download_ids).await?;
         }
@@ -85,15 +90,34 @@ impl SeriesCleaner {
     }
 
     /// unmonitor watched episodes that are still monitored
-    async fn unmonitor(&self, watched: &ShowsWithWatchedEpisodes) -> anyhow::Result<()> {
-        let ids = watched.monitored_episode_ids();
-        if !ids.is_empty() {
-            self.sonarr_client.unmonitor_episodes(&ids).await?;
+    async fn unmonitor_watched_episodes(
+        &self,
+        shows: &ShowsWithWatchedEpisodes,
+    ) -> anyhow::Result<()> {
+        let per_series_ep_ids = shows.monitored_ep_ids_per_series();
+        if per_series_ep_ids.is_empty() {
+            debug!("no monitored episodes found for unmonitoring");
+        } else {
+            let ids: HashSet<u64> = per_series_ep_ids.keys().copied().collect();
+            let res = self.sonarr_client.unmonitor_episodes(&ids).await?;
+            let log_msg = res
+                .iter()
+                .filter_map(|e| {
+                    per_series_ep_ids
+                        .get(&e.id)
+                        .map(|series_title| format!("  - \"{series_title}\" {e}"))
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            info!("unmonitored episodes:\n{log_msg}");
         }
         Ok(())
     }
 
-    async fn query_watched(&self, user_name: &str) -> anyhow::Result<ShowsWithWatchedEpisodes> {
+    async fn shows_with_watched_episodes(
+        &self,
+        user_name: &str,
+    ) -> anyhow::Result<ShowsWithWatchedEpisodes> {
         let user_id = self.jellyfin.user(user_name).await?.id;
 
         // first query all watched episodes
@@ -112,7 +136,7 @@ impl SeriesCleaner {
             .collect();
 
         // then query all series for those episodes. Note that some series may
-        // not being fully watched yet
+        // not be fully watched yet
         let series = self
             .jellyfin
             .items(
@@ -125,7 +149,8 @@ impl SeriesCleaner {
                             .collect::<Vec<&str>>()
                             .as_slice(),
                     )
-                    .include_item_types(&["Series"]),
+                    .include_item_types(&["Series"])
+                    .fields(&["ProviderIds"]),
             )
             .await?;
 
@@ -292,15 +317,21 @@ impl TvShowWithWatchedEpisodes {
 struct ShowsWithWatchedEpisodes(Vec<TvShowWithWatchedEpisodes>);
 
 impl ShowsWithWatchedEpisodes {
-    fn inner(&self) -> &[TvShowWithWatchedEpisodes] {
-        &self.0
+    fn is_empty(&self) -> bool {
+        self.0.is_empty()
     }
 
-    fn monitored_episode_ids(&self) -> HashSet<u64> {
+    /// get a map of monitored episode ids per series titles. Needed for further
+    /// logging to map episode ids back to series titles
+    fn monitored_ep_ids_per_series(&self) -> HashMap<u64, &str> {
         self.0
             .iter()
-            .flat_map(|s| s.watched_sonarr_episodes.iter())
-            .filter_map(|e| e.monitored.then_some(e.id))
+            .flat_map(|s| {
+                s.watched_sonarr_episodes
+                    .iter()
+                    .map(|ep| (s.jellyfin_series.name.as_ref(), ep))
+            })
+            .filter_map(|(title, ep)| ep.monitored.then_some((ep.id, title)))
             .collect()
     }
 
@@ -309,7 +340,9 @@ impl ShowsWithWatchedEpisodes {
         self.0.iter().map(|s| &s.sonarr_series).collect()
     }
 
-    fn filter_for_deletion(
+    /// filter series that are safe to delete based on retention period and
+    /// forbidden tags
+    fn series_for_deletion(
         &self,
         retention_period: Option<Duration>,
         forbidden_tags: &[u64],

@@ -83,16 +83,22 @@ impl RadarrClient {
 
     /// Bulk edit movies via MovieEditor
     /// https://radarr.video/docs/api/#/MovieEditor/put_api_v3_movie_editor
-    pub async fn bulk_edit(&self, edit_request: &MovieEditor) -> anyhow::Result<()> {
+    pub async fn bulk_edit(
+        &self,
+        edit_request: &MovieEditor,
+    ) -> anyhow::Result<Vec<MovieEditorResponse>> {
         let url = self.base_url.join("movie/editor")?;
-        self.client
+        let res = self
+            .client
             .put(url.clone())
             .json(edit_request)
             .send()
             .await?
             .handle_error()
+            .await?
+            .json()
             .await?;
-        Ok(())
+        Ok(res)
     }
 
     /// Delete a movie by its ID and all associated files.
@@ -182,6 +188,20 @@ pub struct HistoryRecordData {
 pub struct Tag {
     pub label: String,
     pub id: u64,
+}
+
+#[derive(Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct MovieEditorResponse {
+    title: String,
+    path: String,
+    id: u64,
+}
+
+impl std::fmt::Display for MovieEditorResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "\"{}\" [id: {}] ({})", self.title, self.id, self.path)
+    }
 }
 
 // Requests

@@ -134,20 +134,26 @@ impl SonarrClient {
 
     /// Unmonitor episodes through the episodes monitor API
     /// https://sonarr.tv/docs/api/#v3/tag/episode/PUT/api/v3/episode/monitor
-    pub async fn unmonitor_episodes(&self, episode_ids: &HashSet<u64>) -> anyhow::Result<()> {
+    pub async fn unmonitor_episodes(
+        &self,
+        episode_ids: &HashSet<u64>,
+    ) -> anyhow::Result<Vec<EpisodeMonitorResponse>> {
         let url = self.base_url.join("episode/monitor")?;
         let request = serde_json::json!({
             "episodeIds": episode_ids,
             "monitored": false,
         });
-        self.client
+        let res = self
+            .client
             .put(url)
             .json(&request)
             .send()
             .await?
             .handle_error()
+            .await?
+            .json()
             .await?;
-        Ok(())
+        Ok(res)
     }
 }
 
@@ -238,6 +244,20 @@ pub struct HistoryRecordData {
 pub struct Tag {
     pub label: String,
     pub id: u64,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EpisodeMonitorResponse {
+    season_number: u16,
+    episode_number: u16,
+    pub id: u64,
+}
+
+impl std::fmt::Display for EpisodeMonitorResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "s{:02}e{:02}", self.season_number, self.episode_number)
+    }
 }
 
 #[cfg(test)]
