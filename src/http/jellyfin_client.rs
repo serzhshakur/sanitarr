@@ -109,14 +109,16 @@ pub struct ItemsResponse {
     total_record_count: usize,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Default)]
 #[serde(rename_all = "PascalCase")]
-#[cfg_attr(test, derive(Default))]
 pub struct JellyfinItem {
     pub name: String,
     pub id: String,
     pub provider_ids: Option<ProviderIds>,
     pub user_data: Option<ItemUserData>,
+    pub series_id: Option<String>,
+    pub index_number: Option<u32>,
+    pub parent_index_number: Option<u32>,
 }
 
 impl JellyfinItem {
@@ -130,6 +132,13 @@ impl JellyfinItem {
 
     pub fn last_played_date(&self) -> Option<DateTime<Utc>> {
         self.user_data.as_ref()?.last_played_date
+    }
+
+    pub fn watched(&self) -> bool {
+        self.user_data
+            .as_ref()
+            .map(|ud| ud.played)
+            .unwrap_or_default()
     }
 }
 
@@ -146,6 +155,7 @@ pub struct ProviderIds {
 #[cfg_attr(test, derive(Default))]
 pub struct ItemUserData {
     pub last_played_date: Option<DateTime<Utc>>,
+    pub played: bool,
 }
 
 #[derive(Deserialize, Debug)]
@@ -175,13 +185,13 @@ pub struct ItemsFilter<'a> {
     fields: Option<&'a [&'a str]>,
     #[serde(serialize_with = "to_comma_separated")]
     include_item_types: Option<&'a [&'a str]>,
+    #[serde(serialize_with = "to_comma_separated")]
+    ids: Option<&'a [&'a str]>,
     is_favorite: Option<bool>,
     is_played: Option<bool>,
     recursive: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     user_id: Option<&'a str>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    parent_id: Option<&'a str>,
 }
 
 impl<'a> ItemsFilter<'a> {
@@ -193,19 +203,13 @@ impl<'a> ItemsFilter<'a> {
             is_played: None,
             recursive: None,
             user_id: None,
-            parent_id: None,
+            ids: None,
         }
     }
 
     #[must_use]
     pub fn user_id(mut self, user_id: &'a str) -> Self {
         self.user_id = Some(user_id);
-        self
-    }
-
-    #[must_use]
-    pub fn parent_id(mut self, parent_id: &'a str) -> Self {
-        self.parent_id = Some(parent_id);
         self
     }
 
@@ -236,6 +240,11 @@ impl<'a> ItemsFilter<'a> {
     #[must_use]
     pub fn fields(mut self, fields: &'a [&'a str]) -> Self {
         self.fields = Some(fields);
+        self
+    }
+    #[must_use]
+    pub fn ids(mut self, ids: &'a [&'a str]) -> Self {
+        self.ids = Some(ids);
         self
     }
 

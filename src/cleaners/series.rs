@@ -2,7 +2,8 @@ use crate::{
     cleaners::utils,
     config::SonarrConfig,
     http::{
-        ItemsFilter, JellyfinClient, JellyfinItem, SeriesInfo, SonarrClient, TorrentClientKind,
+        Episode, ItemsFilter, JellyfinClient, JellyfinItem, SeriesInfo, SonarrClient,
+        TorrentClientKind,
     },
     services::DownloadService,
 };
@@ -47,14 +48,17 @@ impl SeriesCleaner {
 
     /// cleanup fully watched series from Sonarr and Download client
     pub async fn cleanup(&self, user_name: &str, force_delete: bool) -> anyhow::Result<()> {
-        let items = self.watched_items(user_name).await?;
+        let watched = self.query_watched(user_name).await?;
 
-        if items.is_empty() {
+        if watched.inner().is_empty() {
             log::info!("no fully watched series found!");
             return Ok(());
         }
 
-        let series = self.series_for_deletion(&items).await?;
+        self.unmonitor(&watched).await?;
+
+        let forbidden_tags = self.forbidden_tags().await?;
+        let series = watched.filter_for_deletion(self.retention_period, &forbidden_tags)?;
 
         if series.is_empty() {
             info!("no series found for deletion!");
@@ -80,55 +84,112 @@ impl SeriesCleaner {
         Ok(())
     }
 
-    async fn watched_items(&self, user_name: &str) -> anyhow::Result<Vec<JellyfinItem>> {
+    /// unmonitor watched episodes that are still monitored
+    async fn unmonitor(&self, watched: &ShowsWithWatchedEpisodes) -> anyhow::Result<()> {
+        let ids = watched.monitored_episode_ids();
+        if !ids.is_empty() {
+            self.sonarr_client.unmonitor_episodes(&ids).await?;
+        }
+        Ok(())
+    }
+
+    async fn query_watched(&self, user_name: &str) -> anyhow::Result<ShowsWithWatchedEpisodes> {
         let user_id = self.jellyfin.user(user_name).await?.id;
 
-        let series = self
+        // first query all watched episodes
+        let mut watched_episodes = self
             .jellyfin
             .items(
                 ItemsFilter::watched()
                     .user_id(user_id.as_ref())
+                    .include_item_types(&["Episode"]),
+            )
+            .await?;
+
+        let watched_series_ids: HashSet<&str> = watched_episodes
+            .iter()
+            .filter_map(|ep| ep.series_id.as_deref())
+            .collect();
+
+        // then query all series for those episodes. Note that some series may
+        // not being fully watched yet
+        let series = self
+            .jellyfin
+            .items(
+                ItemsFilter::new()
+                    .user_id(user_id.as_ref())
+                    .ids(
+                        watched_series_ids
+                            .iter()
+                            .copied()
+                            .collect::<Vec<&str>>()
+                            .as_slice(),
+                    )
                     .include_item_types(&["Series"]),
             )
             .await?;
 
-        let Some(retention_period) = self.retention_period else {
-            if !series.is_empty() {
-                warn!("no retention period is set for Sonarr, will delete all series immediately");
-            }
-            return Ok(series);
-        };
-        let retention_date = chrono::Utc::now() - retention_period;
-        let mut safe_to_delete_items = vec![];
-
-        for series_item in series {
-            // Items of type "Episode" despite being watched sometimes are not
-            // marked as played, so we need to build a separate filter for them
-            let filter = ItemsFilter::new()
-                .user_id(user_id.as_ref())
-                .recursive()
-                .parent_id(&series_item.id)
-                .include_item_types(&["Episode"]);
-
-            let episodes = self.jellyfin.items(filter).await?;
-            let max_last_played = episodes
-                .iter()
-                .filter_map(JellyfinItem::last_played_date)
-                .max();
-
-            if let Some(last_played) = max_last_played {
-                if retention_date > last_played {
-                    safe_to_delete_items.push(series_item);
-                } else {
-                    debug!(
-                        "retention period for one or more episodes of \"{}\" is not yet passed ({} left), skipping",
-                        series_item.name,
-                        utils::retention_str(&last_played, &retention_date)
-                    );
-                }
-            }
+        // group watched episodes per series
+        let mut episodes_per_series = Vec::with_capacity(series.len());
+        for s in series {
+            let (kept, removed): (Vec<JellyfinItem>, Vec<JellyfinItem>) = watched_episodes
+                .into_iter()
+                .partition(|ep| ep.series_id.as_deref() == Some(s.id.as_str()));
+            watched_episodes = removed;
+            episodes_per_series.push((s, kept));
         }
-        Ok(safe_to_delete_items)
+
+        let futs = episodes_per_series.into_iter().map(
+            |(jellyfin_series, jellyfin_episodes)| async move {
+                let series_name = &jellyfin_series.name;
+                let Some(tvdb_id) = jellyfin_series.tvdb_id() else {
+                    warn!("series \"{series_name}\" has no TVDB id, skipping");
+                    return Ok::<_, anyhow::Error>(None);
+                };
+
+                let Some(sonarr_series) =
+                    self.sonarr_client.series_by_tvdb_id(tvdb_id).await?.pop()
+                else {
+                    warn!("series {series_name} with TVDB id {tvdb_id} not found in Sonarr");
+                    return Ok::<_, anyhow::Error>(None);
+                };
+                let mut sonarr_episodes = self
+                    .sonarr_client
+                    .episodes_by_series_id(sonarr_series.id)
+                    .await?;
+
+                // retain only those Sonarr episodes that are watched in Jellyfin
+                sonarr_episodes.retain(|sonar_ep| {
+                    jellyfin_episodes.iter().any(|jl_ep| {
+                        if !jl_ep.watched() {
+                            return false;
+                        }
+                        let (Some(season_nr), Some(ep_nr)) =
+                            (jl_ep.parent_index_number, jl_ep.index_number)
+                        else {
+                            return false;
+                        };
+                        sonar_ep.season_number == season_nr && sonar_ep.episode_number == ep_nr
+                    })
+                });
+
+                let result = TvShowWithWatchedEpisodes {
+                    jellyfin_series,
+                    watched_jellyfin_episodes: jellyfin_episodes,
+                    sonarr_series,
+                    watched_sonarr_episodes: sonarr_episodes,
+                };
+                Ok::<_, anyhow::Error>(Some(result))
+            },
+        );
+
+        let results = futures::future::try_join_all(futs)
+            .await?
+            .into_iter()
+            .flatten()
+            .collect();
+
+        Ok(ShowsWithWatchedEpisodes(results))
     }
 
     async fn forbidden_tags(&self) -> anyhow::Result<Vec<u64>> {
@@ -144,22 +205,6 @@ impl SeriesCleaner {
         debug!("forbidden tag ids: {forbidden_tags:?}");
 
         Ok(forbidden_tags)
-    }
-
-    /// get all series from Sonarr for a given TVDB ID
-    async fn series_for_tvdb_id(
-        &self,
-        tvdb_id: &str,
-        forbidden_tags: &[u64],
-    ) -> anyhow::Result<Vec<SeriesInfo>> {
-        let ids = self
-            .sonarr_client
-            .series_by_tvdb_id(tvdb_id)
-            .await?
-            .into_iter()
-            .filter(|series| safe_to_delete(series, forbidden_tags))
-            .collect();
-        Ok(ids)
     }
 
     /// query Sonarr history for given series ids and get download_ids per each
@@ -179,26 +224,6 @@ impl SeriesCleaner {
             }
         }
         Ok(per_client_hashes)
-    }
-
-    /// get all series ids for a given list of items that are safe to delete
-    async fn series_for_deletion(&self, items: &[JellyfinItem]) -> anyhow::Result<Vec<SeriesInfo>> {
-        if items.is_empty() {
-            return Ok(Default::default());
-        }
-        let tvdb_ids: Vec<&str> = items.iter().filter_map(JellyfinItem::tvdb_id).collect();
-        let forbidden_tags = self.forbidden_tags().await?;
-
-        let futs = tvdb_ids
-            .iter()
-            .map(|id| self.series_for_tvdb_id(id, &forbidden_tags));
-
-        let series = futures::future::try_join_all(futs)
-            .await?
-            .into_iter()
-            .flat_map(|i| i.into_iter())
-            .collect::<Vec<SeriesInfo>>();
-        Ok(series)
     }
 
     /// delete series with given ids
@@ -242,6 +267,93 @@ fn safe_to_delete(series: &SeriesInfo, forbidden_tags: &[u64]) -> bool {
         let wont_air = stats.next_airing.is_none();
         fully_downloaded || wont_air
     })
+}
+
+/// a struct that represents a TV show with only watched Jellyfin episodes and
+/// the corresponding episodes in Sonarr. Here the TV show itself is not
+/// necessarily fully watched
+struct TvShowWithWatchedEpisodes {
+    jellyfin_series: JellyfinItem,
+    watched_jellyfin_episodes: Vec<JellyfinItem>,
+    sonarr_series: SeriesInfo,
+    watched_sonarr_episodes: Vec<Episode>,
+}
+
+impl TvShowWithWatchedEpisodes {
+    fn latest_played_date(&self) -> Option<chrono::DateTime<chrono::Utc>> {
+        self.watched_jellyfin_episodes
+            .iter()
+            .filter_map(JellyfinItem::last_played_date)
+            .max()
+    }
+}
+
+/// a collection of [`TvShowWithWatchedEpisodes`] with some helper methods
+struct ShowsWithWatchedEpisodes(Vec<TvShowWithWatchedEpisodes>);
+
+impl ShowsWithWatchedEpisodes {
+    fn inner(&self) -> &[TvShowWithWatchedEpisodes] {
+        &self.0
+    }
+
+    fn monitored_episode_ids(&self) -> HashSet<u64> {
+        self.0
+            .iter()
+            .flat_map(|s| s.watched_sonarr_episodes.iter())
+            .filter_map(|e| e.monitored.then_some(e.id))
+            .collect()
+    }
+
+    /// get all Sonarr series from the collection
+    fn sonar_series(&self) -> Vec<&SeriesInfo> {
+        self.0.iter().map(|s| &s.sonarr_series).collect()
+    }
+
+    fn filter_for_deletion(
+        &self,
+        retention_period: Option<Duration>,
+        forbidden_tags: &[u64],
+    ) -> anyhow::Result<Vec<&SeriesInfo>> {
+        let series = match retention_period {
+            Some(retention_period) => {
+                let retention_date = chrono::Utc::now() - retention_period;
+                let mut safe_to_delete_items = vec![];
+
+                for item in &self.0 {
+                    if !item.jellyfin_series.watched() {
+                        continue;
+                    }
+                    if let Some(last_played) = item.latest_played_date() {
+                        if retention_date > last_played {
+                            safe_to_delete_items.push(&item.sonarr_series);
+                        } else {
+                            debug!(
+                                "retention period for one or more episodes of \"{}\" is not yet passed ({} left), skipping",
+                                item.sonarr_series.title,
+                                utils::retention_str(&last_played, &retention_date)
+                            );
+                        }
+                    };
+                }
+                safe_to_delete_items
+            }
+            None => {
+                if !self.0.is_empty() {
+                    warn!(
+                        "no retention period is set for Radarr, will delete all movies immediately"
+                    );
+                }
+                self.sonar_series()
+            }
+        };
+
+        let result = series
+            .into_iter()
+            .filter(|s| safe_to_delete(s, forbidden_tags))
+            .collect();
+
+        Ok(result)
+    }
 }
 
 #[cfg(test)]
