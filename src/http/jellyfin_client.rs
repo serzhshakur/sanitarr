@@ -5,11 +5,10 @@ use chrono::{DateTime, Utc};
 use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderValue};
 use reqwest::{Client, ClientBuilder, Url};
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct JellyfinClient {
-    client: Arc<Client>,
+    client: Client,
     base_url: Url,
 }
 
@@ -21,15 +20,12 @@ impl JellyfinClient {
         let client = ClientBuilder::new()
             .default_headers(default_headers)
             .build()?;
-        Ok(Self {
-            client: Arc::new(client),
-            base_url,
-        })
+        Ok(Self { client, base_url })
     }
 
     /// Get all items that match the given query filter
     /// https://api.jellyfin.org/#tag/Items
-    pub async fn items(&self, items_filter: ItemsFilter<'_>) -> anyhow::Result<Vec<JellyfinItem>> {
+    pub async fn items(&self, items_filter: ItemsFilter<'_>) -> anyhow::Result<Vec<Item>> {
         let url = self.base_url.join("Items")?;
 
         // pagination
@@ -105,23 +101,23 @@ fn auth_headers(api_key: &str) -> Result<HeaderMap, anyhow::Error> {
 #[derive(Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct ItemsResponse {
-    pub items: Vec<JellyfinItem>,
+    pub items: Vec<Item>,
     total_record_count: usize,
 }
 
 #[derive(Deserialize, Debug, Default)]
 #[serde(rename_all = "PascalCase")]
-pub struct JellyfinItem {
+pub struct Item {
     pub name: String,
     pub id: String,
-    pub provider_ids: Option<ProviderIds>,
-    pub user_data: Option<ItemUserData>,
     pub series_id: Option<String>,
     pub index_number: Option<u32>,
     pub parent_index_number: Option<u32>,
+    provider_ids: Option<ProviderIds>,
+    user_data: Option<ItemUserData>,
 }
 
-impl JellyfinItem {
+impl Item {
     pub fn tmdb_id(&self) -> Option<&str> {
         self.provider_ids.as_ref()?.tmdb.as_deref()
     }
@@ -146,19 +142,19 @@ impl JellyfinItem {
 #[serde(rename_all = "PascalCase")]
 #[cfg_attr(test, derive(Default))]
 pub struct ProviderIds {
-    pub tmdb: Option<String>,
-    pub tvdb: Option<String>,
+    tmdb: Option<String>,
+    tvdb: Option<String>,
 }
 
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "PascalCase")]
 #[cfg_attr(test, derive(Default))]
 pub struct ItemUserData {
-    pub last_played_date: Option<DateTime<Utc>>,
-    pub played: bool,
+    last_played_date: Option<DateTime<Utc>>,
+    played: bool,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone)]
 pub struct UserId(String);
 
 impl AsRef<str> for UserId {
@@ -167,25 +163,28 @@ impl AsRef<str> for UserId {
     }
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct User {
     pub id: UserId,
-    pub name: String,
+    name: String,
 }
 
 /// Filter for querying items. Serializes into query parameters. Check [docs]
 /// for more details
 ///
 /// [docs]: https://api.jellyfin.org/#tag/Items/operation/GetItems
-#[derive(Serialize, Clone)]
+#[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ItemsFilter<'a> {
     #[serde(serialize_with = "to_comma_separated")]
     fields: Option<&'a [&'a str]>,
     #[serde(serialize_with = "to_comma_separated")]
     include_item_types: Option<&'a [&'a str]>,
-    #[serde(serialize_with = "to_comma_separated")]
+    #[serde(
+        serialize_with = "to_comma_separated",
+        skip_serializing_if = "Option::is_none"
+    )]
     ids: Option<&'a [&'a str]>,
     is_favorite: Option<bool>,
     is_played: Option<bool>,

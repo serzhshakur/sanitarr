@@ -3,7 +3,7 @@ mod radarr_client;
 mod sonarr_client;
 mod torrent_clients;
 
-pub use jellyfin_client::{ItemsFilter, JellyfinClient, JellyfinItem, UserId};
+pub use jellyfin_client::{Item, ItemsFilter, JellyfinClient, UserId};
 use log::trace;
 pub use radarr_client::{Movie, MovieEditor, RadarrClient};
 pub use sonarr_client::{Episode, SeriesInfo, SonarrClient};

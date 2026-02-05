@@ -34,18 +34,24 @@ base_url = "http://localhost:7878"
 api_key = "sadfa2345234asdfasd2345234"
 tags_to_keep = ["keep"]
 retention_period = "2d"
+# unmonitor watched movies to prevent further downloads. Useful when the file is
+# still kept after being watched due to retention period not passed yet.
+# Defaults to `false`
+unmonitor_watched = false
 
 [sonarr]
 base_url = "http://localhost:8989"
 api_key = "sadfa2345234asdfasd2345234"
 tags_to_keep = ["keep", "no_remove"]
 retention_period = "1w"
+# unmonitor watched episodes to prevent further downloads.
+# Defaults to `false`
+unmonitor_watched = false
 
-# You can configure multiple download clients running in your system.
-# Currently only 'qBittorrent' and 'Deluge' are supported.
-# Which client to delete a specific torrent from will be decided
-# automatically based on the API response from either Sonarr or Radarr.
-# See "History" API reference for more details
+# You can configure multiple download clients running in your system. Currently
+# only 'qBittorrent' and 'Deluge' are supported. Which client to delete a
+# specific torrent from will be decided automatically based on the API response
+# from either Sonarr or Radarr. See "History" API reference for more details
 # - https://sonarr.tv/docs/api/#v3/tag/history/GET/api/v3/history
 # - https://radarr.video/docs/api/#/History/get_api_v3_history
 

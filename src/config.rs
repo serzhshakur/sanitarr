@@ -28,6 +28,8 @@ pub struct RadarrConfig {
     pub retention_period: Option<Duration>,
     #[serde(default)]
     pub tags_to_keep: Vec<String>,
+    #[serde(default)]
+    pub unmonitor_watched: bool,
 }
 
 #[derive(Deserialize)]
@@ -39,6 +41,8 @@ pub struct SonarrConfig {
     pub retention_period: Option<Duration>,
     #[serde(default)]
     pub tags_to_keep: Vec<String>,
+    #[serde(default)]
+    pub unmonitor_watched: bool,
 }
 
 #[derive(Deserialize)]

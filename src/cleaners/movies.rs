@@ -2,7 +2,7 @@ use crate::{
     cleaners::utils,
     config::RadarrConfig,
     http::{
-        ItemsFilter, JellyfinClient, JellyfinItem, Movie, MovieEditor, RadarrClient,
+        Item as JellyfinItem, ItemsFilter, JellyfinClient, Movie, MovieEditor, RadarrClient,
         TorrentClientKind, UserId,
     },
     services::DownloadService,
@@ -16,9 +16,11 @@ use std::{
 pub struct MoviesCleaner {
     radarr_client: RadarrClient,
     jellyfin: JellyfinClient,
-    download_client: DownloadService,
+    download_service: DownloadService,
     tags_to_keep: Vec<String>,
     retention_period: Option<Duration>,
+    user_id: UserId,
+    unmonitor_watched: bool,
 }
 
 /// MoviesCleaner is responsible for cleaning up watched movies from Radarr and
@@ -27,35 +29,41 @@ impl MoviesCleaner {
     pub fn new(
         radarr_config: RadarrConfig,
         jellyfin: JellyfinClient,
-        download_client: DownloadService,
+        download_service: DownloadService,
+        user_id: &UserId,
     ) -> anyhow::Result<Self> {
         let RadarrConfig {
             base_url,
             api_key,
             tags_to_keep,
             retention_period,
+            unmonitor_watched,
         } = radarr_config;
         let radarr_client = RadarrClient::new(&base_url, &api_key)?;
 
         Ok(Self {
             radarr_client,
             jellyfin,
-            download_client,
+            download_service,
             tags_to_keep,
             retention_period,
+            unmonitor_watched,
+            user_id: user_id.clone(),
         })
     }
 
-    pub async fn cleanup(&self, user_name: &str, force_delete: bool) -> anyhow::Result<()> {
-        let user = self.jellyfin.user(user_name).await?;
-        let watched_items = self.watched_jellyfin_items(&user.id).await?;
-        if watched_items.is_empty() {
+    /// unmonitor watched movies (if configured) and cleanup movies from Radarr
+    /// and Download client that are fully watched in Jellyfin
+    pub async fn cleanup(&self, force_delete: bool) -> anyhow::Result<()> {
+        let watched_movies = self.watched_movies(&self.user_id).await?;
+        if watched_movies.is_empty() {
             log::info!("no movies found for deletion in Jellyfin!");
             return Ok(());
         }
 
-        let watched_movies = self.watched_movies(watched_items).await?;
-        self.unmonitor(&watched_movies).await?;
+        if self.unmonitor_watched {
+            self.unmonitor(&watched_movies).await?;
+        }
 
         let forbidden_tags = self.forbidden_tags().await?;
         let movies_for_deletion =
@@ -73,12 +81,12 @@ impl MoviesCleaner {
             debug!("trying to delete items in Radarr: {movies_for_deletion:?}");
             self.delete_movies(&movie_ids).await?;
             info!("successfully deleted items from Radarr: {movies_for_deletion:?}");
-            self.download_client.delete(&download_ids).await?;
+            self.download_service.delete(&download_ids).await?;
         } else {
             info!(
                 "no items will be deleted as no `--force-delete` flag is provided. Listing them instead: {movies_for_deletion:?}"
             );
-            self.download_client.list(&download_ids).await?;
+            self.download_service.list(&download_ids).await?;
         }
 
         Ok(())
@@ -157,14 +165,15 @@ impl MoviesCleaner {
         Ok(forbidden_tags)
     }
 
-    /// query movies per given Jellyfin items and return a [`WatchedMovies`]
-    /// object
-    async fn watched_movies(&self, items: Vec<JellyfinItem>) -> anyhow::Result<WatchedMovies> {
+    /// queries movies per Jellyfin items and returns a [`WatchedMovies`] object
+    async fn watched_movies(&self, user_id: &UserId) -> anyhow::Result<WatchedMovies> {
+        let items = self.watched_jellyfin_items(user_id).await?;
         let movies_futs = items.into_iter().map(|jellyfin_item| async move {
             let Some(tmdb_id) = jellyfin_item.tmdb_id() else {
+                warn!("movie \"{}\" has no TMDB id, skipping", jellyfin_item.name);
                 return Ok(None);
             };
-            let movies = self.radarr_client.movies_by_tmdb_id(tmdb_id).await?;
+            let movies: Vec<Movie> = self.radarr_client.movies_by_tmdb_id(tmdb_id).await?;
             let watched = WatchedMovie {
                 jellyfin_item,
                 movies,
@@ -200,6 +209,10 @@ struct WatchedMovie {
 struct WatchedMovies(Vec<WatchedMovie>);
 
 impl WatchedMovies {
+    fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
     fn movies(&self) -> Vec<&Movie> {
         self.0.iter().flat_map(|wm| wm.movies.iter()).collect()
     }

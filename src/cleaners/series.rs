@@ -2,8 +2,8 @@ use crate::{
     cleaners::utils,
     config::SonarrConfig,
     http::{
-        Episode, ItemsFilter, JellyfinClient, JellyfinItem, SeriesInfo, SonarrClient,
-        TorrentClientKind,
+        Episode, Item as JellyfinItem, ItemsFilter, JellyfinClient, SeriesInfo, SonarrClient,
+        TorrentClientKind, UserId,
     },
     services::DownloadService,
 };
@@ -21,6 +21,8 @@ pub struct SeriesCleaner {
     download_client: DownloadService,
     tags_to_keep: Vec<String>,
     retention_period: Option<Duration>,
+    user_id: UserId,
+    unmonitor_watched: bool,
 }
 
 impl SeriesCleaner {
@@ -28,12 +30,14 @@ impl SeriesCleaner {
         sonarr_config: SonarrConfig,
         jellyfin: JellyfinClient,
         download_client: DownloadService,
+        user_id: &UserId,
     ) -> anyhow::Result<Self> {
         let SonarrConfig {
             base_url,
             api_key,
             tags_to_keep,
             retention_period,
+            unmonitor_watched,
         } = sonarr_config;
 
         let sonarr_client = SonarrClient::new(&base_url, &api_key)?;
@@ -43,21 +47,24 @@ impl SeriesCleaner {
             download_client,
             tags_to_keep,
             retention_period,
+            user_id: user_id.clone(),
+            unmonitor_watched,
         })
     }
 
-    /// cleanup fully watched series from Sonarr and Download client
-    pub async fn cleanup(&self, user_name: &str, force_delete: bool) -> anyhow::Result<()> {
-        let series_with_watched_eps = self.shows_with_watched_episodes(user_name).await?;
+    /// unmonitor watched episodes (if configured) and cleanup fully watched
+    /// series from Sonarr and Download client
+    pub async fn cleanup(&self, force_delete: bool) -> anyhow::Result<()> {
+        let series_with_watched_eps = self.shows_with_watched_episodes().await?;
 
         if series_with_watched_eps.is_empty() {
             log::info!("no fully watched series found!");
             return Ok(());
         }
-
-        self.unmonitor_watched_episodes(&series_with_watched_eps)
-            .await?;
-
+        if self.unmonitor_watched {
+            self.unmonitor_watched_episodes(&series_with_watched_eps)
+                .await?;
+        }
         let forbidden_tags = self.forbidden_tags().await?;
         let series_to_delete =
             series_with_watched_eps.series_for_deletion(self.retention_period, &forbidden_tags)?;
@@ -114,23 +121,18 @@ impl SeriesCleaner {
         Ok(())
     }
 
-    async fn shows_with_watched_episodes(
-        &self,
-        user_name: &str,
-    ) -> anyhow::Result<ShowsWithWatchedEpisodes> {
-        let user_id = self.jellyfin.user(user_name).await?.id;
-
+    async fn shows_with_watched_episodes(&self) -> anyhow::Result<ShowsWithWatchedEpisodes> {
         // first query all watched episodes
         let mut watched_episodes = self
             .jellyfin
             .items(
                 ItemsFilter::watched()
-                    .user_id(user_id.as_ref())
+                    .user_id(self.user_id.as_ref())
                     .include_item_types(&["Episode"]),
             )
             .await?;
 
-        let watched_series_ids: HashSet<&str> = watched_episodes
+        let series_ids: HashSet<&str> = watched_episodes
             .iter()
             .filter_map(|ep| ep.series_id.as_deref())
             .collect();
@@ -141,14 +143,8 @@ impl SeriesCleaner {
             .jellyfin
             .items(
                 ItemsFilter::new()
-                    .user_id(user_id.as_ref())
-                    .ids(
-                        watched_series_ids
-                            .iter()
-                            .copied()
-                            .collect::<Vec<&str>>()
-                            .as_slice(),
-                    )
+                    .user_id(self.user_id.as_ref())
+                    .ids(series_ids.iter().copied().collect::<Vec<&str>>().as_slice())
                     .include_item_types(&["Series"])
                     .fields(&["ProviderIds"]),
             )
@@ -157,7 +153,7 @@ impl SeriesCleaner {
         // group watched episodes per series
         let mut episodes_per_series = Vec::with_capacity(series.len());
         for s in series {
-            let (kept, removed): (Vec<JellyfinItem>, Vec<JellyfinItem>) = watched_episodes
+            let (kept, removed) = watched_episodes
                 .into_iter()
                 .partition(|ep| ep.series_id.as_deref() == Some(s.id.as_str()));
             watched_episodes = removed;
@@ -173,6 +169,8 @@ impl SeriesCleaner {
                 };
 
                 let Some(sonarr_series) =
+                // assuming there is only one Sonarr series per TVDB id for
+                // simplicity sake
                     self.sonarr_client.series_by_tvdb_id(tvdb_id).await?.pop()
                 else {
                     warn!("series {series_name} with TVDB id {tvdb_id} not found in Sonarr");
