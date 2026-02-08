@@ -3,7 +3,7 @@ use anyhow::Ok;
 use chrono::{DateTime, Utc};
 use reqwest::header::{HeaderMap, HeaderValue};
 use reqwest::{Client, ClientBuilder, Url};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::fmt::Debug;
 
@@ -114,6 +114,90 @@ impl SonarrClient {
             .await?;
         Ok(response)
     }
+
+    /// Get all episodes for a series
+    /// https://sonarr.tv/docs/api/#/Episode/get_api_v3_episode
+    pub async fn episodes_by_series(&self, series_id: u64) -> anyhow::Result<Vec<EpisodeInfo>> {
+        let url = self.base_url.join("episode")?;
+        let response = self
+            .client
+            .get(url)
+            .query(&[("seriesId", series_id)])
+            .send()
+            .await?
+            .handle_error()
+            .await?
+            .json()
+            .await?;
+        Ok(response)
+    }
+
+    /// Delete an episode file by its ID
+    /// https://sonarr.tv/docs/api/#/EpisodeFile/delete_api_v3_episodefile__id_
+    pub async fn delete_episode_file(&self, episode_file_id: u64) -> anyhow::Result<()> {
+        let url = self
+            .base_url
+            .join("episodefile/")?
+            .join(&episode_file_id.to_string())?;
+        self.client
+            .delete(url)
+            .send()
+            .await?
+            .handle_error()
+            .await?;
+        Ok(())
+    }
+
+    /// Get episode file info by series ID
+    /// https://sonarr.tv/docs/api/#/EpisodeFile/get_api_v3_episodefile
+    pub async fn episode_files_by_series(&self, series_id: u64) -> anyhow::Result<Vec<EpisodeFileInfo>> {
+        let url = self.base_url.join("episodefile")?;
+        let response = self
+            .client
+            .get(url)
+            .query(&[("seriesId", series_id)])
+            .send()
+            .await?
+            .handle_error()
+            .await?
+            .json()
+            .await?;
+        Ok(response)
+    }
+
+    /// Unmonitor an episode (prevent Sonarr from re-downloading)
+    /// https://sonarr.tv/docs/api/#/Episode/put_api_v3_episode__id_
+    pub async fn unmonitor_episode(&self, episode_id: u64) -> anyhow::Result<()> {
+        // First, get the current episode data
+        let url = self
+            .base_url
+            .join("episode/")?
+            .join(&episode_id.to_string())?;
+
+        let mut episode: EpisodeInfo = self
+            .client
+            .get(url.clone())
+            .send()
+            .await?
+            .handle_error()
+            .await?
+            .json()
+            .await?;
+
+        // Set monitored to false
+        episode.monitored = false;
+
+        // Update the episode
+        self.client
+            .put(url)
+            .json(&episode)
+            .send()
+            .await?
+            .handle_error()
+            .await?;
+
+        Ok(())
+    }
 }
 
 fn auth_headers(api_key: &str) -> Result<HeaderMap, anyhow::Error> {
@@ -187,6 +271,28 @@ impl HistoryRecord {
 #[serde(rename_all = "camelCase")]
 pub struct HistoryRecordData {
     pub download_client: Option<TorrentClientKind>,
+}
+
+#[derive(Deserialize, Serialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct EpisodeInfo {
+    pub id: u64,
+    pub series_id: u64,
+    pub episode_file_id: Option<u64>,  // ID of the file on disk
+    pub title: String,
+    pub season_number: u32,
+    pub episode_number: u32,
+    pub monitored: bool,  // CRITICAL: Tracks if Sonarr is monitoring this episode
+}
+
+#[derive(Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct EpisodeFileInfo {
+    pub id: u64,
+    pub series_id: u64,
+    pub season_number: u32,
+    pub relative_path: String,
+    pub size: u64,
 }
 
 #[derive(Deserialize, Debug)]

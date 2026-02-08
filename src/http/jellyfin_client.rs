@@ -117,6 +117,11 @@ pub struct Item {
     pub id: String,
     pub provider_ids: Option<ProviderIds>,
     pub user_data: Option<ItemUserData>,
+    // Episode-specific fields (only present for Episode items)
+    pub parent_index_number: Option<u32>,  // Season number
+    pub index_number: Option<u32>,         // Episode number
+    pub series_id: Option<String>,         // Parent series ID (for episodes)
+    pub series_name: Option<String>,       // Parent series name (for display)
 }
 
 impl Item {
@@ -126,6 +131,19 @@ impl Item {
 
     pub fn tvdb_id(&self) -> Option<&str> {
         self.provider_ids.as_ref()?.tvdb.as_deref()
+    }
+
+    // Helper methods for episodes
+    pub fn season_number(&self) -> Option<u32> {
+        self.parent_index_number
+    }
+
+    pub fn episode_number(&self) -> Option<u32> {
+        self.index_number
+    }
+
+    pub fn series_jellyfin_id(&self) -> Option<&str> {
+        self.series_id.as_deref()
     }
 }
 
