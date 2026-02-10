@@ -13,6 +13,8 @@ jobs:
   publish:
     name: Build and publish image
     runs-on: ubuntu-latest
+    outputs:
+      docker_tags: ${{ steps.meta.outputs.tags }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -47,3 +49,28 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+  release:
+    name: Github release
+    needs: publish
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate version
+        run: |
+          CARGO_VERSION=$(awk -F' = ' '/^version =/ {print $2}' Cargo.toml | tr -d '"')
+          if [ "$GITHUB_REF_NAME" != "v$CARGO_VERSION" ]; then
+            echo "Tag version ($TAG_VERSION) does not match Cargo.toml version ($CARGO_VERSION)"
+            exit 1
+          fi
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          draft: true
+          body: |
+            ## Docker images
+            ${{ needs.publish.outputs.docker_tags }}
