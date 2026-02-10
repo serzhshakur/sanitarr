@@ -62,7 +62,7 @@ jobs:
         run: |
           CARGO_VERSION=$(awk -F' = ' '/^version =/ {print $2}' Cargo.toml | tr -d '"')
           if [ "$GITHUB_REF_NAME" != "v$CARGO_VERSION" ]; then
-            echo "Tag version ($TAG_VERSION) does not match Cargo.toml version ($CARGO_VERSION)"
+            echo "Tag version ($GITHUB_REF_NAME) does not match Cargo.toml version ($CARGO_VERSION)"
             exit 1
           fi
 
