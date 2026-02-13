@@ -1,10 +1,11 @@
 # Sanitarr
 
 Sanitarr is a tool designed to clean up your media library by integrating with
-the **\*arr** stack (Radarr, Sonarr), Jellyfin and multiple download clients of
-your choice (currently only qBittorrent and Deluge are supported). It helps you
-manage and maintain your media collection by removing fully watched items,
-thereby reducing the size of your collection on the disk.
+the [**\*arr**](https://wiki.servarr.com/) stack (Radarr, Sonarr), Jellyfin and
+multiple download clients of your choice (currently only qBittorrent and Deluge
+are supported). It helps you manage and maintain your media collection by
+removing fully watched items, thereby reducing the size of your collection on
+the disk.
 
 ## Features
 
@@ -82,11 +83,25 @@ value for `INTERVAL` should be specified in a [format understood by the `sleep`
 command](https://www.gnu.org/software/coreutils/manual/html_node/sleep-invocation.html#sleep_003a-Delay-for-a-specified-time)
 (e.g., `1h` for one hour, `30m` for thirty minutes).
 
+### Pre-built Docker image
+
+Docker images are regularly published to [ghcr.io
+registry](https://github.com/serzhshakur/sanitarr/pkgs/container/sanitarr). Note
+that currently only amd64 images are published.
+
+### Build locally
+
 You can build and run Sanitarr using Docker:
 
 ```sh
 docker build -t sanitarr:local .
+```
 
+## Running
+
+### Standalone Docker container
+
+```sh
 docker run -it \
   --network host \
   -e INTERVAL="1h" \
@@ -95,7 +110,7 @@ docker run -it \
   --log-level debug --config /app/config.toml --force-delete
 ```
 
-### Using Docker Compose
+### Docker Compose
 
 You can also use Docker Compose to run Sanitarr. Below is an example
 `docker-compose.yml` file:
@@ -103,7 +118,7 @@ You can also use Docker Compose to run Sanitarr. Below is an example
 ```yaml
 services:
   sanitarr:
-    image: local/sanitarr:local
+    image: ghcr.io/serzhshakur/sanitarr:latest
     container_name: sanitarr
     network_mode: "host"
     pull_policy: never
@@ -122,9 +137,9 @@ services:
       - radarr
 ```
 
-## Usage
+### Using sanitarr binary executable
 
-To run Sanitarr, use the following command:
+To run Sanitarr executable, use the following command:
 
 ```sh
 sanitarr --config /path/to/config.toml [--log-level] [--force-delete]
