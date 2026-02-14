@@ -9,12 +9,14 @@ base_url = "http://localhost:7878"
 api_key = "api-key-foo"
 tags_to_keep = ["keep"]
 retention_period = "2d"
+unmonitor = false
 
 [sonarr]
 base_url = "http://localhost:7878"
 api_key = "api-key-foo"
 tags_to_keep = ["keep"]
 retention_period = "1w"
+unmonitor = false
 
 [download_clients.qbittorrent]
 base_url = "http://localhost:8080"

@@ -14,6 +14,7 @@ the disk.
 - Cleans up movies and series based on your configuration;
 - Supports custom tags to keep specific files;
 - Provides logging and error handling;
+- Unmonitor watched content: Automatically unmonitor watched movies in Radarr and watched series in Sonar;
 
 ## Configuration
 
@@ -34,12 +35,14 @@ base_url = "http://localhost:7878"
 api_key = "sadfa2345234asdfasd2345234"
 tags_to_keep = ["keep"]
 retention_period = "2d"
+unmonitor = false
 
 [sonarr]
 base_url = "http://localhost:8989"
 api_key = "sadfa2345234asdfasd2345234"
 tags_to_keep = ["keep", "no_remove"]
 retention_period = "1w"
+unmonitor = false
 
 # You can configure multiple download clients running in your system.
 # Currently only 'qBittorrent' and 'Deluge' are supported.

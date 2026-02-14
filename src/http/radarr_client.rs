@@ -2,7 +2,7 @@ use super::{ResponseExt, TorrentClientKind};
 use anyhow::Ok;
 use reqwest::header::{HeaderMap, HeaderValue};
 use reqwest::{Client, ClientBuilder, Url};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::fmt::Debug;
 
@@ -109,6 +109,40 @@ impl RadarrClient {
             .await?;
         Ok(response)
     }
+
+    /// Unmonitor movies by setting monitored = false
+    pub async fn unmonitor_movies(&self, movie_ids: &HashSet<u64>) -> anyhow::Result<()> {
+        let unmonitor_futs = movie_ids.iter().map(|&id| async move {
+            // Get current movie details as raw JSON
+            let url = self.base_url.join("movie/")?.join(&id.to_string())?;
+            let mut movie_json: serde_json::Value = self
+                .client
+                .get(url.clone())
+                .send()
+                .await?
+                .handle_error()
+                .await?
+                .json()
+                .await?;
+
+            // Set monitored to false while preserving all other fields
+            movie_json["monitored"] = serde_json::Value::Bool(false);
+
+            // Update the movie with all original fields intact
+            self.client
+                .put(url)
+                .json(&movie_json)
+                .send()
+                .await?
+                .handle_error()
+                .await?;
+
+            anyhow::Ok(())
+        });
+
+        futures::future::try_join_all(unmonitor_futs).await?;
+        Ok(())
+    }
 }
 
 fn auth_headers(api_key: &str) -> Result<HeaderMap, anyhow::Error> {
@@ -119,12 +153,13 @@ fn auth_headers(api_key: &str) -> Result<HeaderMap, anyhow::Error> {
     Ok(default_headers)
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Movie {
     pub title: String,
     pub id: u64,
     pub tags: Option<Vec<u64>>,
+    pub monitored: Option<bool>,
 }
 
 impl Debug for Movie {

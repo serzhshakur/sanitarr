@@ -114,6 +114,57 @@ impl SonarrClient {
             .await?;
         Ok(response)
     }
+
+    /// Get episodes for a series by series ID
+    /// https://sonarr.tv/docs/api/#/Episode/get_api_v3_episode
+    pub async fn episodes_by_series_id(&self, series_id: u64) -> anyhow::Result<Vec<Episode>> {
+        let url = self.base_url.join("episode")?;
+        let response = self
+            .client
+            .get(url)
+            .query(&[("seriesId", series_id)])
+            .send()
+            .await?
+            .handle_error()
+            .await?
+            .json()
+            .await?;
+        Ok(response)
+    }
+
+    /// Unmonitor episodes by setting monitored = false
+    pub async fn unmonitor_episodes(&self, episode_ids: &HashSet<u64>) -> anyhow::Result<()> {
+        let unmonitor_futs = episode_ids.iter().map(|&id| async move {
+            // Get current episode details as raw JSON
+            let url = self.base_url.join("episode/")?.join(&id.to_string())?;
+            let mut episode_json: serde_json::Value = self
+                .client
+                .get(url.clone())
+                .send()
+                .await?
+                .handle_error()
+                .await?
+                .json()
+                .await?;
+
+            // Set monitored to false while preserving all other fields
+            episode_json["monitored"] = serde_json::Value::Bool(false);
+
+            // Update the episode with all original fields intact
+            self.client
+                .put(url)
+                .json(&episode_json)
+                .send()
+                .await?
+                .handle_error()
+                .await?;
+
+            anyhow::Ok(())
+        });
+
+        futures::future::try_join_all(unmonitor_futs).await?;
+        Ok(())
+    }
 }
 
 fn auth_headers(api_key: &str) -> Result<HeaderMap, anyhow::Error> {
@@ -194,6 +245,15 @@ pub struct HistoryRecordData {
 pub struct Tag {
     pub label: String,
     pub id: u64,
+}
+
+#[derive(Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct Episode {
+    pub id: u64,
+    pub season_number: u32,
+    pub episode_number: u32,
+    pub monitored: Option<bool>,
 }
 
 #[cfg(test)]

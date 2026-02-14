@@ -117,6 +117,8 @@ pub struct Item {
     pub id: String,
     pub provider_ids: Option<ProviderIds>,
     pub user_data: Option<ItemUserData>,
+    pub parent_index_number: Option<i32>,
+    pub index_number: Option<i32>,
 }
 
 impl Item {
