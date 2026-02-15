@@ -1,6 +1,6 @@
 [package]
 name = "sanitarr"
-version = "0.1.0"
+version = "0.1.1"
 description = "A tool to keep your media server library clean."
 repository = "https://github.com/serzhshakur/sanitarr"
 edition = "2024"
