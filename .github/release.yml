@@ -1,0 +1,14 @@
+# This file is used by the release action to determine how to generate the
+# changelog and what to include in the release notes
+# https://docs.github.com/en/repositories/releasing-projects-on-github/automatically-generated-release-notes
+
+changelog:
+  exclude:
+    labels: [ignore-for-release]
+  categories:
+    - title: Breaking Changes 🛠
+      labels: [breaking]
+    - title: New Features 🎉
+      labels: [feature]
+    - title: What's Changed 📝
+      labels: ["*"]

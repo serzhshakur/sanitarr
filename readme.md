@@ -164,6 +164,15 @@ You can also specify the log level using the `LOG_LEVEL` environment variable:
 LOG_LEVEL="off,sanitarr=debug" sanitarr
 ```
 
+## Support the Project
+
+If you find Sanitarr useful and want to support its development, consider buying
+me a ~~coffee~~ beer. Your support helps keep this project maintained and
+improved.
+
+[![Buy Me A
+Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-Support-yellow?style=for-the-badge&logo=buy-me-a-coffee)](https://buymeacoffee.com/serzhshakur)
+
 ## Contributing
 
 Contributions are welcome! Please open an issue or submit a pull request on
