@@ -19,26 +19,27 @@ async fn main() -> anyhow::Result<()> {
     let config = config::Config::load(&args.config).await?;
 
     let jellyfin_client = JellyfinClient::new(&config.jellyfin)?;
-    let download_client = DownloadService::new(config.download_clients).await?;
+    let download_service = DownloadService::new(config.download_clients).await?;
+    let user = jellyfin_client.user(&config.username).await?;
 
     let movies_cleaner = MoviesCleaner::new(
         config.radarr,
         jellyfin_client.clone(),
-        download_client.clone(),
+        download_service.clone(),
+        &user.id,
     )?;
 
     let series_cleaner = SeriesCleaner::new(
         config.sonarr,
         jellyfin_client.clone(),
-        download_client.clone(),
+        download_service.clone(),
+        &user.id,
     )?;
 
-    movies_cleaner
-        .cleanup(&config.username, args.force_delete)
-        .await?;
-    series_cleaner
-        .cleanup(&config.username, args.force_delete)
-        .await?;
+    tokio::try_join!(
+        movies_cleaner.cleanup(args.force_delete),
+        series_cleaner.cleanup(args.force_delete),
+    )?;
 
     Ok(())
 }

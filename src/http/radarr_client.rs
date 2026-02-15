@@ -2,7 +2,7 @@ use super::{ResponseExt, TorrentClientKind};
 use anyhow::Ok;
 use reqwest::header::{HeaderMap, HeaderValue};
 use reqwest::{Client, ClientBuilder, Url};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::fmt::Debug;
 
@@ -81,6 +81,26 @@ impl RadarrClient {
         Ok(records)
     }
 
+    /// Bulk edit movies via MovieEditor
+    /// https://radarr.video/docs/api/#/MovieEditor/put_api_v3_movie_editor
+    pub async fn bulk_edit(
+        &self,
+        edit_request: &MovieEditor,
+    ) -> anyhow::Result<Vec<MovieEditorResponse>> {
+        let url = self.base_url.join("movie/editor")?;
+        let res = self
+            .client
+            .put(url.clone())
+            .json(edit_request)
+            .send()
+            .await?
+            .handle_error()
+            .await?
+            .json()
+            .await?;
+        Ok(res)
+    }
+
     /// Delete a movie by its ID and all associated files.
     /// https://radarr.video/docs/api/#/Movie/delete_api_v3_movie__id_
     pub async fn delete_movie(&self, movie_id: u64) -> anyhow::Result<()> {
@@ -119,12 +139,15 @@ fn auth_headers(api_key: &str) -> Result<HeaderMap, anyhow::Error> {
     Ok(default_headers)
 }
 
+// Responses
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Movie {
-    pub title: String,
     pub id: u64,
+    pub monitored: bool,
     pub tags: Option<Vec<u64>>,
+    pub title: String,
 }
 
 impl Debug for Movie {
@@ -165,6 +188,43 @@ pub struct HistoryRecordData {
 pub struct Tag {
     pub label: String,
     pub id: u64,
+}
+
+#[derive(Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct MovieEditorResponse {
+    title: String,
+    path: String,
+    id: u64,
+}
+
+impl std::fmt::Display for MovieEditorResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "\"{}\" [id: {}] ({})", self.title, self.id, self.path)
+    }
+}
+
+// Requests
+
+#[derive(Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct MovieEditor {
+    movie_ids: HashSet<u64>,
+    monitored: bool,
+}
+
+impl MovieEditor {
+    pub fn new(movie_ids: HashSet<u64>) -> Self {
+        Self {
+            movie_ids,
+            ..Self::default()
+        }
+    }
+
+    pub fn monitored(mut self, monitored: bool) -> Self {
+        self.monitored = monitored;
+        self
+    }
 }
 
 #[cfg(test)]

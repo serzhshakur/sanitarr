@@ -5,10 +5,10 @@ mod torrent_clients;
 
 pub use jellyfin_client::{Item, ItemsFilter, JellyfinClient, UserId};
 use log::trace;
-pub use radarr_client::{Movie, RadarrClient};
+pub use radarr_client::{Movie, MovieEditor, RadarrClient};
+pub use sonarr_client::{Episode, SeriesInfo, SonarrClient};
 #[cfg(test)]
 pub use sonarr_client::{Season, SeasonStatistics, SeriesStatistics};
-pub use sonarr_client::{SeriesInfo, SonarrClient};
 pub use torrent_clients::{DelugeClient, QbittorrentClient, TorrentClient, TorrentClientKind};
 
 use anyhow::bail;

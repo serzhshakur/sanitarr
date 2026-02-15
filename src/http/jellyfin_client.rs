@@ -5,11 +5,10 @@ use chrono::{DateTime, Utc};
 use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderValue};
 use reqwest::{Client, ClientBuilder, Url};
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct JellyfinClient {
-    client: Arc<Client>,
+    client: Client,
     base_url: Url,
 }
 
@@ -21,10 +20,7 @@ impl JellyfinClient {
         let client = ClientBuilder::new()
             .default_headers(default_headers)
             .build()?;
-        Ok(Self {
-            client: Arc::new(client),
-            base_url,
-        })
+        Ok(Self { client, base_url })
     }
 
     /// Get all items that match the given query filter
@@ -109,14 +105,16 @@ pub struct ItemsResponse {
     total_record_count: usize,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Default)]
 #[serde(rename_all = "PascalCase")]
-#[cfg_attr(test, derive(Default))]
 pub struct Item {
     pub name: String,
     pub id: String,
-    pub provider_ids: Option<ProviderIds>,
-    pub user_data: Option<ItemUserData>,
+    pub series_id: Option<String>,
+    pub index_number: Option<u32>,
+    pub parent_index_number: Option<u32>,
+    provider_ids: Option<ProviderIds>,
+    user_data: Option<ItemUserData>,
 }
 
 impl Item {
@@ -127,24 +125,36 @@ impl Item {
     pub fn tvdb_id(&self) -> Option<&str> {
         self.provider_ids.as_ref()?.tvdb.as_deref()
     }
+
+    pub fn last_played_date(&self) -> Option<DateTime<Utc>> {
+        self.user_data.as_ref()?.last_played_date
+    }
+
+    pub fn watched(&self) -> bool {
+        self.user_data
+            .as_ref()
+            .map(|ud| ud.played)
+            .unwrap_or_default()
+    }
 }
 
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "PascalCase")]
 #[cfg_attr(test, derive(Default))]
 pub struct ProviderIds {
-    pub tmdb: Option<String>,
-    pub tvdb: Option<String>,
+    tmdb: Option<String>,
+    tvdb: Option<String>,
 }
 
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "PascalCase")]
 #[cfg_attr(test, derive(Default))]
 pub struct ItemUserData {
-    pub last_played_date: Option<DateTime<Utc>>,
+    last_played_date: Option<DateTime<Utc>>,
+    played: bool,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone)]
 pub struct UserId(String);
 
 impl AsRef<str> for UserId {
@@ -153,31 +163,34 @@ impl AsRef<str> for UserId {
     }
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct User {
     pub id: UserId,
-    pub name: String,
+    name: String,
 }
 
 /// Filter for querying items. Serializes into query parameters. Check [docs]
 /// for more details
 ///
 /// [docs]: https://api.jellyfin.org/#tag/Items/operation/GetItems
-#[derive(Serialize, Clone)]
+#[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ItemsFilter<'a> {
     #[serde(serialize_with = "to_comma_separated")]
     fields: Option<&'a [&'a str]>,
     #[serde(serialize_with = "to_comma_separated")]
     include_item_types: Option<&'a [&'a str]>,
+    #[serde(
+        serialize_with = "to_comma_separated",
+        skip_serializing_if = "Option::is_none"
+    )]
+    ids: Option<&'a [&'a str]>,
     is_favorite: Option<bool>,
     is_played: Option<bool>,
     recursive: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     user_id: Option<&'a str>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    parent_id: Option<&'a str>,
 }
 
 impl<'a> ItemsFilter<'a> {
@@ -189,19 +202,13 @@ impl<'a> ItemsFilter<'a> {
             is_played: None,
             recursive: None,
             user_id: None,
-            parent_id: None,
+            ids: None,
         }
     }
 
     #[must_use]
     pub fn user_id(mut self, user_id: &'a str) -> Self {
         self.user_id = Some(user_id);
-        self
-    }
-
-    #[must_use]
-    pub fn parent_id(mut self, parent_id: &'a str) -> Self {
-        self.parent_id = Some(parent_id);
         self
     }
 
@@ -232,6 +239,11 @@ impl<'a> ItemsFilter<'a> {
     #[must_use]
     pub fn fields(mut self, fields: &'a [&'a str]) -> Self {
         self.fields = Some(fields);
+        self
+    }
+    #[must_use]
+    pub fn ids(mut self, ids: &'a [&'a str]) -> Self {
+        self.ids = Some(ids);
         self
     }
 
