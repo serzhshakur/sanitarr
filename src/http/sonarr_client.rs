@@ -1,4 +1,6 @@
-use super::{ResponseExt, TorrentClientKind};
+use crate::services::TorrentClientKind;
+
+use super::ResponseExt;
 use anyhow::Ok;
 use chrono::{DateTime, Utc};
 use reqwest::header::{HeaderMap, HeaderValue};
@@ -264,6 +266,7 @@ impl std::fmt::Display for EpisodeMonitorResponse {
 mod tests {
     use super::HistoryRecord;
     use crate::http::sonarr_client::HistoryRecordData;
+    use crate::services::TorrentClientKind;
 
     #[test]
     fn test_auth_headers() {
@@ -277,11 +280,11 @@ mod tests {
         let history_record = HistoryRecord {
             download_id: "foo".to_owned().into(),
             data: Some(HistoryRecordData {
-                download_client: Some(crate::http::TorrentClientKind::Deluge),
+                download_client: Some(TorrentClientKind::Deluge),
             }),
         };
         let (client, download_id) = history_record.download_id_per_client().unwrap();
-        assert!(matches!(client, crate::http::TorrentClientKind::Deluge));
+        assert!(matches!(client, TorrentClientKind::Deluge));
         assert_eq!(download_id, "foo");
     }
 
@@ -290,7 +293,7 @@ mod tests {
         let history_record = HistoryRecord {
             download_id: None,
             data: Some(HistoryRecordData {
-                download_client: Some(crate::http::TorrentClientKind::Deluge),
+                download_client: Some(TorrentClientKind::Deluge),
             }),
         };
         assert!(history_record.download_id_per_client().is_none());

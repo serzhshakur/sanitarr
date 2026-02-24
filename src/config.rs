@@ -9,6 +9,7 @@ pub struct Config {
     pub jellyfin: JellyfinConfig,
     pub radarr: RadarrConfig,
     pub sonarr: SonarrConfig,
+    pub torrents_retention: Option<TorrentRetentionConfig>,
     pub download_clients: DownloadClientsConfig,
 }
 
@@ -63,6 +64,34 @@ pub struct QbittorrentConfig {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(test, derive(Default))]
+pub struct TorrentRetentionConfig {
+    pub min_ratio: Option<f64>,
+    #[serde(with = "humantime_serde")]
+    pub min_seed_time: Option<Duration>,
+    #[serde(default)]
+    pub trackers: Vec<String>,
+}
+
+impl TorrentRetentionConfig {
+    fn validate(&self) -> anyhow::Result<()> {
+        if self.min_ratio.is_none() && self.min_seed_time.is_none() {
+            bail!(
+                "neither \"min_ratio\" nor \"min_seed_time\" are defined in your torrents retention config"
+            );
+        }
+        if let Some(min_ratio) = self.min_ratio
+            && min_ratio < 0.0
+        {
+            bail!("invalid \"min_ratio\" value: {min_ratio}")
+        }
+
+        Ok(())
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct DelugeConfig {
     pub password: String,
     pub base_url: String,
@@ -74,6 +103,10 @@ impl Config {
             bail!("failed to read config file at {path:?}");
         };
         let config: Config = toml::from_str(&config_str)?;
+
+        if let Some(torr_retention_cfg) = &config.torrents_retention {
+            torr_retention_cfg.validate()?;
+        }
         Ok(config)
     }
 }
@@ -105,14 +138,29 @@ mod test {
         let dur = 60 * 60 * 24 * 7;
         assert_eq!(cfg.sonarr.retention_period, Some(Duration::from_secs(dur)));
 
-        let deluge_cfg = &cfg
-            .download_clients
-            .deluge
-            .context("no Deluge config defined")?;
+        let retention_cfg = cfg
+            .torrents_retention
+            .as_ref()
+            .context("no torrents retention config defined")?;
 
-        let qbittorrent_cfg = &cfg
-            .download_clients
-            .qbittorrent
+        assert_eq!(retention_cfg.min_ratio, Some(0.5));
+        assert_eq!(
+            retention_cfg.min_seed_time,
+            Some(Duration::from_secs(60 * 60 * 24))
+        );
+        assert_eq!(
+            retention_cfg.trackers,
+            ["foo.com".to_owned(), "bar.io".to_owned()]
+        );
+
+        let DownloadClientsConfig {
+            qbittorrent,
+            deluge,
+        } = &cfg.download_clients;
+
+        let deluge_cfg = deluge.as_ref().context("no Deluge config defined")?;
+        let qbittorrent_cfg = qbittorrent
+            .as_ref()
             .context("no qBittorrent config defined")?;
 
         assert_eq!(qbittorrent_cfg.base_url, "http://localhost:8080");

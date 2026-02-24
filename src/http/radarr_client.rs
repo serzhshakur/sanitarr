@@ -1,4 +1,6 @@
-use super::{ResponseExt, TorrentClientKind};
+use crate::services::TorrentClientKind;
+
+use super::ResponseExt;
 use anyhow::Ok;
 use reqwest::header::{HeaderMap, HeaderValue};
 use reqwest::{Client, ClientBuilder, Url};
