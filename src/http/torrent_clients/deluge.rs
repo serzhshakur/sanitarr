@@ -1,6 +1,7 @@
 use super::TorrentClient;
 use crate::config::DelugeConfig;
 use crate::http::ResponseExt;
+use crate::http::torrent_clients::TorrentInfo;
 use anyhow::{Context, Ok, bail};
 use async_trait::async_trait;
 use reqwest::header::{COOKIE, HeaderMap, HeaderValue};
@@ -63,7 +64,7 @@ impl DelugeClient {
 #[async_trait]
 impl TorrentClient for DelugeClient {
     /// List all torrents in the client by their hashes.
-    async fn list_torrents(&self, hashes: &HashSet<String>) -> anyhow::Result<Vec<String>> {
+    async fn list(&self, hashes: &HashSet<String>) -> anyhow::Result<Vec<TorrentInfo>> {
         let request = DelugeRequest::ListTorrents(hashes);
         let response = self
             .post::<HashMap<String, Torrent>>(request)
@@ -74,16 +75,18 @@ impl TorrentClient for DelugeClient {
             return Ok(Vec::default());
         };
 
-        Ok(result.into_values().map(|v| v.name).collect())
+        Ok(result.into_values().map(|t| t.into()).collect())
     }
 
     /// Delete torrents by provided hashes and also delete the associated files.
-    async fn delete_torrents(&self, hashes: &HashSet<String>) -> anyhow::Result<()> {
+    /// Returns information about deleted torrents.
+    async fn delete(&self, hashes: &HashSet<String>) -> anyhow::Result<Vec<TorrentInfo>> {
+        let torrents = self.list(hashes).await?;
         let request = DelugeRequest::DeleteTorrents(hashes);
         self.post::<Vec<bool>>(request)
             .await
             .map_err(|e| anyhow::anyhow!("unable to delete torrents: {e}"))?;
-        Ok(())
+        Ok(torrents)
     }
 }
 
@@ -141,7 +144,15 @@ impl DelugeRequest<'_> {
                             "state": ["Seeding"]
                         },
                         // fields to return
-                        ["name", "state"]
+                                [
+                                  "hash",
+                                  "name",
+                                  "state",
+                                  "progress",
+                                  "ratio",
+                                  "seeding_time",
+                                  "tracker"
+                                ]
                     ],
                     "id": 1
                 }
@@ -173,7 +184,23 @@ fn hashes_to_lower(hashes: &HashSet<String>) -> HashSet<String> {
 
 #[derive(Deserialize)]
 pub struct Torrent {
-    pub name: String,
+    hash: String,
+    name: String,
+    ratio: f64,
+    seeding_time: u64,
+    tracker: String,
+}
+
+impl From<Torrent> for TorrentInfo {
+    fn from(val: Torrent) -> Self {
+        TorrentInfo {
+            name: val.name,
+            hash: val.hash,
+            ratio: val.ratio,
+            seed_time: std::time::Duration::from_secs(val.seeding_time),
+            tracker: val.tracker,
+        }
+    }
 }
 
 #[derive(Deserialize)]

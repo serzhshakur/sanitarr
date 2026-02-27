@@ -2,10 +2,9 @@ use crate::{
     cleaners::utils,
     config::RadarrConfig,
     http::{
-        Item as JellyfinItem, ItemsFilter, JellyfinClient, Movie, MovieEditor, RadarrClient,
-        TorrentClientKind, UserId,
+        Item as JellyfinItem, ItemsFilter, JellyfinClient, Movie, MovieEditor, RadarrClient, UserId,
     },
-    services::DownloadService,
+    services::{DownloadService, TorrentClientKind},
 };
 use log::{debug, info, warn};
 use std::{

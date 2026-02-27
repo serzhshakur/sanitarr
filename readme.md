@@ -55,11 +55,34 @@ unmonitor_watched = false
 # - https://sonarr.tv/docs/api/#v3/tag/history/GET/api/v3/history
 # - https://radarr.video/docs/api/#/History/get_api_v3_history
 
+# (Optional) Configure global retention period for torrents.
+# Useful to set for private trackers with minimal seed time or ratio required.
+# If "retention_period" is also set in "sonarr" or "radarr", sanitarr will first
+# wait for the period defined there and only after it is passes will consider
+# "torrents_retention" config
+#
+# Note: right now only qBittorrent client supports this.
+[torrents_retention]
+# [optional]
+min_ratio = 0.5
+# [optional]
+min_seed_time = "1d"
++ # Note: If both "min_ratio" and "min_seed_time" are defined, the torrent will be
+# eligible for removal if either condition is met
+#
+# [optional]
+# The list of tracker root domains. So all of the
+# "a.foo.com", "b.foo.com" and "a.b.c.foo.com/bar" will match
+# If empty or not set the config criteria will be applied to all torrents.
+trackers = ["foo.com", "bar.io"]
+
+# (Optional) qBittorrent client config
 [download_clients.qbittorrent]
 base_url = "http://localhost:6880"
 username = "admin"
 password = "adminadmin"
 
+# (Optional) Deluge client config
 [download_clients.deluge]
 base_url = "http://localhost:8112"
 password = "qwerty"
@@ -89,13 +112,13 @@ value for `INTERVAL` should be specified in a [format understood by the `sleep`
 command](https://www.gnu.org/software/coreutils/manual/html_node/sleep-invocation.html#sleep_003a-Delay-for-a-specified-time)
 (e.g., `1h` for one hour, `30m` for thirty minutes).
 
-### Pre-built Docker image
+#### Pre-built Docker image
 
 Docker images are regularly published to [ghcr.io
 registry](https://github.com/serzhshakur/sanitarr/pkgs/container/sanitarr). Note
 that currently only amd64 images are published.
 
-### Build locally
+#### Build locally
 
 You can build and run Sanitarr using Docker:
 
@@ -126,8 +149,7 @@ services:
   sanitarr:
     image: ghcr.io/serzhshakur/sanitarr:latest
     container_name: sanitarr
-    network_mode: "host"
-    pull_policy: never
+    network_mode: host
     environment:
       LOG_LEVEL: debug
       INTERVAL: 45m
@@ -173,11 +195,17 @@ LOG_LEVEL="off,sanitarr=debug" sanitarr
 ## Support the Project
 
 If you find Sanitarr useful and want to support its development, consider buying
-me a ~~coffee~~ beer. Your support helps keep this project maintained and
-improved.
+me a ~~coffee~~ beer or contributing via crypto. Your support helps keep this
+project maintained and improved.
 
 [![Buy Me A
 Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-Support-yellow?style=for-the-badge&logo=buy-me-a-coffee)](https://buymeacoffee.com/serzhshakur)
+
+**Bitcoin**: `bc1qlcxnr9gt5t457jaqjn65cjwqztqxdyrwudpn0e`
+
+**Ethereum**: `0xE27e958DA20216Ad7Ebd6B319d2c0ca86e8b820d`
+
+**Solana**: `Ac6EoxnVbJyqteP69bXCz3jWBT5gjdmKDW4C74rLVDUB`
 
 ## Contributing
 

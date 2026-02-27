@@ -16,6 +16,11 @@ api_key = "api-key-foo"
 tags_to_keep = ["keep"]
 retention_period = "1w"
 
+[torrents_retention]
+min_ratio = 0.5
+min_seed_time = "1d"
+trackers = ["foo.com", "bar.io"]
+
 [download_clients.qbittorrent]
 base_url = "http://localhost:8080"
 username = "admin"

@@ -10,5 +10,5 @@ changelog:
       labels: [breaking]
     - title: New Features 🎉
       labels: [feature]
-    - title: What's Changed 📝
+    - title: Other changes 📝
       labels: ["*"]

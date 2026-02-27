@@ -1,6 +1,6 @@
 use super::TorrentClient;
 use crate::config::QbittorrentConfig;
-use crate::http::ResponseExt;
+use crate::http::{ResponseExt, TorrentInfo};
 use anyhow::Ok;
 use async_trait::async_trait;
 use reqwest::header::{COOKIE, HeaderMap, HeaderValue};
@@ -8,6 +8,9 @@ use reqwest::{Client, Url};
 use serde::Deserialize;
 use serde_json::json;
 use std::collections::HashSet;
+use std::time::Duration;
+
+const WATCHED_TAG: &str = "watched";
 
 pub struct QbittorrentClient {
     client: Client,
@@ -47,19 +50,13 @@ impl QbittorrentClient {
             default_headers,
         })
     }
-}
 
-#[async_trait]
-impl TorrentClient for QbittorrentClient {
-    /// List all torrents in the client by their hashes.
-    /// https://github.com/qbittorrent/qBittorrent/wiki/WebUI-API-(qBittorrent-4.1)#get-torrent-list
-    async fn list_torrents(&self, hashes: &HashSet<String>) -> anyhow::Result<Vec<String>> {
+    async fn list(&self, field_name: &str, field_value: &str) -> anyhow::Result<Vec<TorrentInfo>> {
         let url = self.base_url.join("torrents/info")?;
-        let hashes = to_bar_separated_string(hashes);
-        let response: Vec<Torrent> = self
+        let torrents: Vec<Torrent> = self
             .client
             .get(url)
-            .query(&[("hashes", hashes)])
+            .query(&[(field_name, field_value)])
             .headers(self.default_headers.clone())
             .send()
             .await?
@@ -68,24 +65,67 @@ impl TorrentClient for QbittorrentClient {
             .json()
             .await?;
 
-        Ok(response.into_iter().map(|t| t.name).collect())
+        Ok(torrents.into_iter().map(From::from).collect())
+    }
+}
+
+#[async_trait]
+impl TorrentClient for QbittorrentClient {
+    fn is_delayed_deletion_supported(&self) -> bool {
+        true
+    }
+
+    /// List all torrents in the client by their hashes.
+    /// https://github.com/qbittorrent/qBittorrent/wiki/WebUI-API-(qBittorrent-4.1)#get-torrent-list
+    async fn list(&self, hashes: &HashSet<String>) -> anyhow::Result<Vec<TorrentInfo>> {
+        let hashes = to_bar_separated_string(hashes);
+        let torrents = self.list("hashes", &hashes).await?;
+        Ok(torrents)
+    }
+
+    /// List all torrents in the client by "watched" tag.
+    /// https://github.com/qbittorrent/qBittorrent/wiki/WebUI-API-(qBittorrent-4.1)#get-torrent-list
+    async fn list_watched(&self) -> anyhow::Result<Vec<TorrentInfo>> {
+        let torrents = self.list("tag", WATCHED_TAG).await?;
+        Ok(torrents)
     }
 
     /// Delete torrents by provided hashes and also delete the associated files.
     /// https://github.com/qbittorrent/qBittorrent/wiki/WebUI-API-(qBittorrent-4.1)#delete-torrents
-    async fn delete_torrents(&self, hashes: &HashSet<String>) -> anyhow::Result<()> {
+    async fn delete(&self, hashes: &HashSet<String>) -> anyhow::Result<Vec<TorrentInfo>> {
         let url = self.base_url.join("torrents/delete")?;
         let hashes = to_bar_separated_string(hashes);
         let body = &[("hashes", hashes.as_str()), ("deleteFiles", "true")];
-        self.client
+        let torrents: Vec<Torrent> = self
+            .client
             .post(url)
             .form(body)
             .headers(self.default_headers.clone())
             .send()
             .await?
             .handle_error()
+            .await?
+            .json()
             .await?;
-        Ok(())
+        Ok(torrents.into_iter().map(From::from).collect())
+    }
+
+    async fn mark_as_watched(&self, hashes: &HashSet<String>) -> anyhow::Result<Vec<TorrentInfo>> {
+        let url = self.base_url.join("torrents/addTags")?;
+        let hashes = to_bar_separated_string(hashes);
+        let body = &[("hashes", hashes.as_str()), ("tags", WATCHED_TAG)];
+        let torrents: Vec<Torrent> = self
+            .client
+            .post(url)
+            .form(body)
+            .headers(self.default_headers.clone())
+            .send()
+            .await?
+            .handle_error()
+            .await?
+            .json()
+            .await?;
+        Ok(torrents.into_iter().map(From::from).collect())
     }
 }
 
@@ -103,8 +143,33 @@ where
 }
 
 #[derive(Deserialize)]
-pub struct Torrent {
-    pub name: String,
+struct Torrent {
+    hash: String,
+    name: String,
+    ratio: f64,
+    seeding_time: u64,
+    tracker: String,
+}
+
+impl From<Torrent> for TorrentInfo {
+    fn from(
+        Torrent {
+            hash,
+            name,
+            ratio,
+            seeding_time,
+            tracker,
+        }: Torrent,
+    ) -> Self {
+        let seed_time = Duration::from_secs(seeding_time);
+        Self {
+            name,
+            hash,
+            ratio,
+            seed_time,
+            tracker,
+        }
+    }
 }
 
 #[cfg(test)]

@@ -9,7 +9,9 @@ pub use radarr_client::{Movie, MovieEditor, RadarrClient};
 pub use sonarr_client::{Episode, SeriesInfo, SonarrClient};
 #[cfg(test)]
 pub use sonarr_client::{Season, SeasonStatistics, SeriesStatistics};
-pub use torrent_clients::{DelugeClient, QbittorrentClient, TorrentClient, TorrentClientKind};
+pub use torrent_clients::{
+    TorrentClient, TorrentInfo, deluge::DelugeClient, qbittorrent::QbittorrentClient,
+};
 
 use anyhow::bail;
 use reqwest::Response;

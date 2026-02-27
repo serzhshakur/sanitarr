@@ -3,9 +3,9 @@ use crate::{
     config::SonarrConfig,
     http::{
         Episode, Item as JellyfinItem, ItemsFilter, JellyfinClient, SeriesInfo, SonarrClient,
-        TorrentClientKind, UserId,
+        UserId,
     },
-    services::DownloadService,
+    services::{DownloadService, TorrentClientKind},
 };
 use log::{debug, info, warn};
 use std::{

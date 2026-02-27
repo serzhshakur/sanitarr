@@ -1,3 +1,3 @@
 mod download_service;
 
-pub use download_service::DownloadService;
+pub use download_service::{DownloadService, TorrentClientKind};
