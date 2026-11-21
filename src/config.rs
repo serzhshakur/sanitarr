@@ -43,6 +43,8 @@ pub struct SonarrConfig {
     pub tags_to_keep: Vec<String>,
     #[serde(default)]
     pub unmonitor_watched: bool,
+    #[serde(default)]
+    pub delete_by_season: bool,
 }
 
 #[derive(Deserialize)]
@@ -104,6 +106,7 @@ mod test {
         assert_eq!(&cfg.sonarr.tags_to_keep, &["keep".to_owned()]);
         let dur = 60 * 60 * 24 * 7;
         assert_eq!(cfg.sonarr.retention_period, Some(Duration::from_secs(dur)));
+        assert!(cfg.sonarr.delete_by_season);
 
         let deluge_cfg = &cfg
             .download_clients

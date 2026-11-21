@@ -155,6 +155,33 @@ impl SonarrClient {
             .await?;
         Ok(res)
     }
+
+    pub async fn episode_files_by_series_id(
+        &self,
+        series_id: u64,
+    ) -> anyhow::Result<Vec<EpisodeFile>> {
+        let url = self.base_url.join("episodefile")?;
+        let response = self
+            .client
+            .get(url)
+            .query(&[("seriesId", series_id)])
+            .send()
+            .await?
+            .handle_error()
+            .await?
+            .json()
+            .await?;
+        Ok(response)
+    }
+
+    pub async fn delete_episode_file(&self, file_id: u64) -> anyhow::Result<()> {
+        let url = self
+            .base_url
+            .join("episodefile/")?
+            .join(&file_id.to_string())?;
+        self.client.delete(url).send().await?.handle_error().await?;
+        Ok(())
+    }
 }
 
 fn auth_headers(api_key: &str) -> Result<HeaderMap, anyhow::Error> {
@@ -189,18 +216,27 @@ pub struct SeriesStatistics {
     pub size_on_disk: usize,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Clone, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Episode {
     pub episode_number: u32,
     pub id: u64,
     pub monitored: bool,
     pub season_number: u32,
+    pub has_file: bool,
+}
+
+#[derive(Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct EpisodeFile {
+    pub id: u64,
+    pub episode_id: Option<u64>,
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Season {
+    pub season_number: u32,
     pub statistics: SeasonStatistics,
 }
 
