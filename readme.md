@@ -47,6 +47,11 @@ retention_period = "1w"
 # unmonitor watched episodes to prevent further downloads.
 # Defaults to `false`
 unmonitor_watched = false
+# delete a season's files once the season has finished airing and every
+# episode of it has been watched, instead of only cleaning up fully watched
+# series as a whole. The series entry itself is left in Sonarr. Defaults to
+# `false`
+delete_by_season = false
 
 # You can configure multiple download clients running in your system. Currently
 # only 'qBittorrent' and 'Deluge' are supported. Which client to delete a

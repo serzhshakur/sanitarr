@@ -2,8 +2,8 @@ use crate::{
     cleaners::utils,
     config::SonarrConfig,
     http::{
-        Episode, Item as JellyfinItem, ItemsFilter, JellyfinClient, SeriesInfo, SonarrClient,
-        TorrentClientKind, UserId,
+        Episode, Item as JellyfinItem, ItemsFilter, JellyfinClient, Season, SeriesInfo,
+        SonarrClient, TorrentClientKind, UserId,
     },
     services::DownloadService,
 };
@@ -23,6 +23,7 @@ pub struct SeriesCleaner {
     retention_period: Option<Duration>,
     user_id: UserId,
     unmonitor_watched: bool,
+    delete_by_season: bool,
 }
 
 impl SeriesCleaner {
@@ -38,6 +39,7 @@ impl SeriesCleaner {
             tags_to_keep,
             retention_period,
             unmonitor_watched,
+            delete_by_season,
         } = sonarr_config;
 
         let sonarr_client = SonarrClient::new(&base_url, &api_key)?;
@@ -49,6 +51,7 @@ impl SeriesCleaner {
             retention_period,
             user_id: user_id.clone(),
             unmonitor_watched,
+            delete_by_season,
         })
     }
 
@@ -66,6 +69,11 @@ impl SeriesCleaner {
                 .await?;
         }
         let forbidden_tags = self.forbidden_tags().await?;
+        if self.delete_by_season {
+            return self
+                .cleanup_seasons(&series_with_watched_eps, &forbidden_tags, force_delete)
+                .await;
+        }
         let series_to_delete =
             series_with_watched_eps.series_for_deletion(self.retention_period, &forbidden_tags)?;
 
@@ -117,6 +125,82 @@ impl SeriesCleaner {
                 .collect::<Vec<_>>()
                 .join("\n");
             info!("unmonitored episodes:\n{log_msg}");
+        }
+        Ok(())
+    }
+
+    async fn cleanup_seasons(
+        &self,
+        shows: &ShowsWithWatchedEpisodes,
+        forbidden_tags: &[u64],
+        force_delete: bool,
+    ) -> anyhow::Result<()> {
+        let retention_date = self.retention_period.map(|p| chrono::Utc::now() - p);
+        let mut found = false;
+
+        for show in &shows.0 {
+            if has_forbidden_tags(&show.sonarr_series, forbidden_tags) {
+                debug!(
+                    "\"{}\": series has forbidden tags, skipping",
+                    show.sonarr_series.title
+                );
+                continue;
+            }
+            let Some(seasons) = &show.sonarr_series.seasons else {
+                debug!(
+                    "\"{}\": missing `seasons` entry, skipping",
+                    show.sonarr_series.title
+                );
+                continue;
+            };
+
+            let on_disk: Vec<_> = show
+                .all_sonarr_episodes
+                .iter()
+                .filter(|ep| ep.has_file)
+                .cloned()
+                .collect();
+            let last_played = season_last_played(&show.watched_jellyfin_episodes);
+            let seasons_to_delete =
+                finished_seasons(seasons, &on_disk, &last_played, retention_date);
+            if seasons_to_delete.is_empty() {
+                continue;
+            }
+            found = true;
+
+            let episode_ids: HashSet<u64> = on_disk
+                .iter()
+                .filter(|ep| seasons_to_delete.contains(&ep.season_number))
+                .map(|ep| ep.id)
+                .collect();
+            let files = self
+                .sonarr_client
+                .episode_files_by_series_id(show.sonarr_series.id)
+                .await?;
+            let file_ids: Vec<u64> = files
+                .iter()
+                .filter(|f| f.episode_id.is_some_and(|id| episode_ids.contains(&id)))
+                .map(|f| f.id)
+                .collect();
+
+            let title = &show.sonarr_series.title;
+            if force_delete {
+                debug!("trying to delete files {file_ids:?} of \"{title}\"");
+                let delete_futs = file_ids
+                    .iter()
+                    .map(|id| self.sonarr_client.delete_episode_file(*id));
+                let _ = futures::future::try_join_all(delete_futs).await?;
+                info!("successfully deleted files of seasons {seasons_to_delete:?} of \"{title}\"");
+            } else {
+                info!(
+                    "no items will be deleted as no `--force-delete` flag is provided. Listing instead: seasons {seasons_to_delete:?} of \"{title}\" ({} files)",
+                    file_ids.len()
+                );
+            }
+        }
+
+        if !found {
+            info!("no seasons found for deletion!");
         }
         Ok(())
     }
@@ -180,6 +264,7 @@ impl SeriesCleaner {
                     .sonarr_client
                     .episodes_by_series_id(sonarr_series.id)
                     .await?;
+                let all_sonarr_episodes = sonarr_episodes.clone();
 
                 // retain only those Sonarr episodes that are watched in Jellyfin
                 sonarr_episodes.retain(|sonar_ep| {
@@ -200,6 +285,7 @@ impl SeriesCleaner {
                     jellyfin_series,
                     watched_jellyfin_episodes: jellyfin_episodes,
                     sonarr_series,
+                    all_sonarr_episodes,
                     watched_sonarr_episodes: sonarr_episodes,
                 };
                 Ok::<_, anyhow::Error>(Some(result))
@@ -261,14 +347,9 @@ impl SeriesCleaner {
 
 /// check if the series is safe to delete.
 fn safe_to_delete(series: &SeriesInfo, forbidden_tags: &[u64]) -> bool {
-    let has_forbidden_tags = series
-        .tags
-        .as_ref()
-        .is_some_and(|tags| tags.iter().any(|tag| forbidden_tags.contains(tag)));
-
     let title = &series.title;
 
-    if has_forbidden_tags {
+    if has_forbidden_tags(series, forbidden_tags) {
         debug!("{title}: series has forbidden tags, skipping");
         return false;
     }
@@ -292,6 +373,83 @@ fn safe_to_delete(series: &SeriesInfo, forbidden_tags: &[u64]) -> bool {
     })
 }
 
+fn has_forbidden_tags(series: &SeriesInfo, forbidden_tags: &[u64]) -> bool {
+    series
+        .tags
+        .as_ref()
+        .is_some_and(|tags| tags.iter().any(|tag| forbidden_tags.contains(tag)))
+}
+
+fn season_last_played(
+    watched_episodes: &[JellyfinItem],
+) -> HashMap<(u32, u32), chrono::DateTime<chrono::Utc>> {
+    watched_episodes
+        .iter()
+        .filter(|ep| ep.watched())
+        .filter_map(|ep| {
+            let (Some(season_nr), Some(ep_nr), Some(date)) = (
+                ep.parent_index_number,
+                ep.index_number,
+                ep.last_played_date(),
+            ) else {
+                return None;
+            };
+            Some(((season_nr, ep_nr), date))
+        })
+        .collect()
+}
+
+fn finished_seasons(
+    seasons: &[Season],
+    episodes: &[Episode],
+    last_played: &HashMap<(u32, u32), chrono::DateTime<chrono::Utc>>,
+    retention_date: Option<chrono::DateTime<chrono::Utc>>,
+) -> Vec<u32> {
+    let mut result = Vec::new();
+    'season: for season in seasons {
+        let stats = &season.statistics;
+        if stats.total_episode_count == 0
+            || stats.episode_file_count < stats.total_episode_count
+            || stats.next_airing.is_some()
+        {
+            continue;
+        }
+
+        let season_episodes: Vec<_> = episodes
+            .iter()
+            .filter(|ep| ep.season_number == season.season_number)
+            .collect();
+        if season_episodes.is_empty() {
+            continue;
+        }
+
+        let mut latest_played: Option<chrono::DateTime<chrono::Utc>> = None;
+        for ep in season_episodes {
+            let Some(date) = last_played.get(&(ep.season_number, ep.episode_number)) else {
+                debug!(
+                    "season {} is not fully watched, skipping",
+                    season.season_number
+                );
+                continue 'season;
+            };
+            latest_played = Some(latest_played.map_or(*date, |d| d.max(*date)));
+        }
+
+        if let (Some(retention_date), Some(latest_played)) = (retention_date, latest_played)
+            && retention_date <= latest_played
+        {
+            debug!(
+                "retention period for season {} is not yet passed, skipping",
+                season.season_number
+            );
+            continue;
+        }
+
+        result.push(season.season_number);
+    }
+    result
+}
+
 /// a struct that represents a TV show with only watched Jellyfin episodes and
 /// the corresponding episodes in Sonarr. Here the TV show itself is not
 /// necessarily fully watched
@@ -299,6 +457,7 @@ struct TvShowWithWatchedEpisodes {
     jellyfin_series: JellyfinItem,
     watched_jellyfin_episodes: Vec<JellyfinItem>,
     sonarr_series: SeriesInfo,
+    all_sonarr_episodes: Vec<Episode>,
     watched_sonarr_episodes: Vec<Episode>,
 }
 
@@ -397,6 +556,7 @@ mod tests {
     #[test]
     fn test_safe_to_delete_as_fully_downloaded() {
         let season_1 = Season {
+            season_number: 1,
             statistics: SeasonStatistics {
                 next_airing: None,
                 episode_file_count: 1,
@@ -404,6 +564,7 @@ mod tests {
             },
         };
         let season_2 = Season {
+            season_number: 2,
             statistics: SeasonStatistics {
                 next_airing: None,
                 episode_file_count: 11,
@@ -422,6 +583,7 @@ mod tests {
     #[test]
     fn test_safe_to_delete_as_wont_air() {
         let season = Season {
+            season_number: 1,
             statistics: SeasonStatistics {
                 next_airing: None,
                 episode_file_count: 1,
@@ -440,6 +602,7 @@ mod tests {
     #[test]
     fn test_not_safe_to_delete_as_will_air() {
         let season_1 = Season {
+            season_number: 1,
             statistics: SeasonStatistics {
                 next_airing: Some(Default::default()),
                 episode_file_count: 1,
@@ -447,6 +610,7 @@ mod tests {
             },
         };
         let season_2 = Season {
+            season_number: 2,
             statistics: SeasonStatistics {
                 next_airing: None,
                 episode_file_count: 10,
@@ -506,5 +670,110 @@ mod tests {
         };
 
         assert!(!safe_to_delete(&series, FORBIDDEN_TAGS));
+    }
+
+    fn ep(season_number: u32, episode_number: u32, id: u64) -> Episode {
+        Episode {
+            episode_number,
+            id,
+            monitored: true,
+            season_number,
+            has_file: true,
+        }
+    }
+
+    fn season(season_number: u32, files: usize, total: usize) -> Season {
+        Season {
+            season_number,
+            statistics: SeasonStatistics {
+                next_airing: None,
+                episode_file_count: files,
+                total_episode_count: total,
+            },
+        }
+    }
+
+    fn watched_map(
+        playback: &[((u32, u32), i64)],
+    ) -> HashMap<(u32, u32), chrono::DateTime<chrono::Utc>> {
+        playback
+            .iter()
+            .map(|(key, ago)| (*key, chrono::Utc::now() - chrono::Duration::days(*ago)))
+            .collect()
+    }
+
+    fn week_ago() -> chrono::DateTime<chrono::Utc> {
+        chrono::Utc::now() - chrono::Duration::days(7)
+    }
+
+    #[test]
+    fn test_finished_season_fully_watched() {
+        let seasons = vec![season(1, 2, 2)];
+        let episodes = vec![ep(1, 1, 11), ep(1, 2, 12)];
+        let last_played = watched_map(&[((1, 1), 30), ((1, 2), 20)]);
+
+        let result = finished_seasons(&seasons, &episodes, &last_played, Some(week_ago()));
+        assert_eq!(result, vec![1]);
+    }
+
+    #[test]
+    fn test_finished_season_skips_unwatched_episode() {
+        let seasons = vec![season(1, 2, 2)];
+        let episodes = vec![ep(1, 1, 11), ep(1, 2, 12)];
+        let last_played = watched_map(&[((1, 1), 30)]);
+
+        let result = finished_seasons(&seasons, &episodes, &last_played, Some(week_ago()));
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_finished_season_skips_retention_not_passed() {
+        let seasons = vec![season(1, 2, 2)];
+        let episodes = vec![ep(1, 1, 11), ep(1, 2, 12)];
+        let last_played = watched_map(&[((1, 1), 30), ((1, 2), 3)]);
+
+        let result = finished_seasons(&seasons, &episodes, &last_played, Some(week_ago()));
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_finished_season_skips_incomplete_download() {
+        let seasons = vec![season(1, 1, 2)];
+        let episodes = vec![ep(1, 1, 11)];
+        let last_played = watched_map(&[((1, 1), 30)]);
+
+        let result = finished_seasons(&seasons, &episodes, &last_played, Some(week_ago()));
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_finished_season_skips_upcoming_airing() {
+        let mut seasons = vec![season(1, 2, 2)];
+        seasons[0].statistics.next_airing = Some(chrono::Utc::now());
+        let episodes = vec![ep(1, 1, 11), ep(1, 2, 12)];
+        let last_played = watched_map(&[((1, 1), 30), ((1, 2), 30)]);
+
+        let result = finished_seasons(&seasons, &episodes, &last_played, Some(week_ago()));
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_finished_seasons_returns_only_finished_ones() {
+        let seasons = vec![season(1, 2, 2), season(2, 1, 10)];
+        let episodes = vec![ep(1, 1, 11), ep(1, 2, 12), ep(2, 1, 21)];
+        let last_played = watched_map(&[((1, 1), 30), ((1, 2), 20), ((2, 1), 30)]);
+
+        let result = finished_seasons(&seasons, &episodes, &last_played, Some(week_ago()));
+        assert_eq!(result, vec![1]);
+    }
+
+    #[test]
+    fn test_finished_season_no_retention_deletes_immediately() {
+        let seasons = vec![season(1, 1, 1)];
+        let episodes = vec![ep(1, 1, 11)];
+        let last_played = watched_map(&[((1, 1), 0)]);
+
+        let result = finished_seasons(&seasons, &episodes, &last_played, None);
+        assert_eq!(result, vec![1]);
     }
 }
